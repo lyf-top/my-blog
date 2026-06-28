@@ -16,7 +16,7 @@
 	type FullConfig = Record<string, any>;
 
 	// ============ 状态 ============
-	let editMode = $state(false);
+	let editMode = $state(true);
 	let saving = $state(false);
 	let hasChanges = $state(false);
 	let codeMode = $state(false);
@@ -474,6 +474,9 @@ ${pagesStr}
 <div class="config-edit-toolbar">
 	<EditToolbar
 		pageName="站点配置"
+		mountTo=".page-header-toolbar-slot"
+		startInEditMode={true}
+		persistentEdit={true}
 		{saving}
 		{hasChanges}
 		showAddButton={false}
@@ -481,21 +484,20 @@ ${pagesStr}
 		on:save={() => handleSave()}
 		on:cancel={() => handleCancel()}
 	/>
-	{#if editMode}
-		<button
-			class="code-toggle-btn"
-			class:code-toggle-btn-active={codeMode}
-			onclick={toggleCodeMode}
-			title={codeMode ? "切换到可视化编辑" : "切换到代码编辑"}
-		>
-			<iconify-icon icon={codeMode ? "material-symbols:visibility-rounded" : "material-symbols:code-rounded"} class="text-sm"></iconify-icon>
-			{codeMode ? "可视化" : "代码"}
-		</button>
-	{/if}
 </div>
 
 <!-- 编辑模式内容 -->
 {#if editMode}
+	<button
+		class="code-toggle-btn"
+		class:code-toggle-btn-active={codeMode}
+		onclick={toggleCodeMode}
+		title={codeMode ? "切换到可视化编辑" : "切换到代码编辑"}
+	>
+		<iconify-icon icon={codeMode ? "material-symbols:visibility-rounded" : "material-symbols:code-rounded"} class="text-sm"></iconify-icon>
+		{codeMode ? "可视化" : "代码"}
+	</button>
+
 	{#if codeMode}
 		<!-- 代码编辑模式 -->
 		<div class="config-card">

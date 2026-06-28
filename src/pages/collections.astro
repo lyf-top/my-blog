@@ -23,13 +23,16 @@ const initialCollectionsJson = JSON.stringify(collectionsApiConfig);
   <div class="flex w-full rounded-(--radius-large) overflow-hidden relative min-h-32">
     <div class="card-base z-10 px-9 py-6 relative w-full">
       <!-- 页面标题 -->
-      <div class="mb-8">
-        <PageTitle title={title} eyebrow="Collections" variant="stacked" />
-        {description && (
-          <p class="text-base text-neutral-500 dark:text-neutral-400 leading-relaxed mt-3">
-            {description}
-          </p>
-        )}
+      <div class="mb-8 flex justify-between items-start gap-4 flex-wrap">
+        <div class="flex-1 min-w-0">
+          <PageTitle title={title} eyebrow="Collections" variant="stacked" />
+          {description && (
+            <p class="text-base text-neutral-500 dark:text-neutral-400 leading-relaxed mt-3">
+              {description}
+            </p>
+          )}
+        </div>
+        <div class="page-header-toolbar-slot flex-shrink-0"></div>
       </div>
 
       <!-- 收藏编辑器（Svelte 组件，包含编辑按钮、Tab、卡片渲染，仅客户端渲染） -->
@@ -39,3 +42,14 @@ const initialCollectionsJson = JSON.stringify(collectionsApiConfig);
     </div>
   </div>
 </MainGridLayout>
+
+<style>
+  @media (max-width: 768px) {
+    :has(> .page-header-toolbar-slot) {
+      flex-direction: column;
+    }
+    .page-header-toolbar-slot {
+      width: 100%;
+    }
+  }
+</style>

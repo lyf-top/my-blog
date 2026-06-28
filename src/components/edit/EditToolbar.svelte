@@ -17,12 +17,18 @@
 		saving,
 		hasChanges,
 		showAddButton = true,
-	} = $props<{
+		startInEditMode = false,
+		persistentEdit = false,
+		mountTo,
+	}: {
 		pageName: string;
 		saving: boolean;
 		hasChanges: boolean;
 		showAddButton?: boolean;
-	}>();
+		startInEditMode?: boolean;
+		persistentEdit?: boolean;
+		mountTo?: string;
+	} = $props();
 
 	let editMode = $state(false);
 	let hasToken = $state(false);
@@ -30,13 +36,51 @@
 	let tokenInput = $state("");
 	let validatingToken = $state(false);
 
-	// 隐藏的文件选择器（RyuChan模式：点击按钮直接打开文件选择）
 	let keyFileInput = $state<HTMLInputElement | null>(null);
+	let toolbarRootEl = $state<HTMLDivElement>();
+	let mountedExternally = false;
+	let hiddenWrapper: HTMLElement | null = null;
+	let mountTarget: Element | null = null;
 
 	onMount(() => {
 		ensureIconify();
 		hasToken = hasValidToken();
 		tokenInput = getStoredToken();
+		if (startInEditMode) {
+			editMode = true;
+		}
+		if (mountTo) {
+			mountTarget = document.querySelector(mountTo);
+			moveToolbar();
+		}
+		return () => {
+			if (hiddenWrapper) {
+				hiddenWrapper.style.display = "";
+			}
+		};
+	});
+
+	function moveToolbar() {
+		if (mountTo && toolbarRootEl && mountTarget && !mountedExternally) {
+			const wrapper = toolbarRootEl.parentElement;
+			if (wrapper && wrapper !== mountTarget) {
+				hiddenWrapper = wrapper as HTMLElement;
+				hiddenWrapper.style.display = "none";
+			}
+			mountTarget.appendChild(toolbarRootEl);
+			mountedExternally = true;
+		}
+	}
+
+	$effect(() => {
+		if (mountTo && toolbarRootEl && mountTarget) {
+			moveToolbar();
+		}
+		return () => {
+			if (mountedExternally && toolbarRootEl && toolbarRootEl.parentNode) {
+				toolbarRootEl.parentNode.removeChild(toolbarRootEl);
+			}
+		};
 	});
 
 	function enterEdit() {
@@ -48,15 +92,15 @@
 		if (hasChanges && !confirm("你有未保存的更改，确定要取消吗？所有修改将丢失。")) {
 			return;
 		}
-		editMode = false;
-		dispatch("modeChange", { editing: false });
+		if (!persistentEdit) {
+			editMode = false;
+			dispatch("modeChange", { editing: false });
+		}
 		dispatch("cancel");
 	}
 
-	// 直接触发文件选择（RyuChan模式：不弹模态框，直接打开文件选择器）
 	function handleImportKey() {
 		if (hasToken) {
-			// 已导入密钥，点击可以选择清除或重新导入
 			if (confirm("已导入密钥。点击确定重新导入，点击取消保留当前密钥。")) {
 				keyFileInput?.click();
 			}
@@ -77,7 +121,6 @@
 			if (content.includes("-----BEGIN") && content.includes("PRIVATE KEY-----")) {
 				showToast("检测到PEM私钥，当前版本使用GitHub PAT Token认证，请导入包含Token的文本文件", "warning");
 				input.value = "";
-				// 打开手动输入模态框
 				tokenInput = "";
 				showTokenModal = true;
 				return;
@@ -138,7 +181,7 @@
 	function handleSave() {
 		if (!hasValidToken()) {
 			showToast("请先导入密钥再保存", "warning");
-			keyFileInput?.click(); // 直接打开文件选择
+			keyFileInput?.click();
 			return;
 		}
 		dispatch("save");
@@ -149,20 +192,17 @@
 	}
 </script>
 
-<!-- 非编辑模式：单编辑按钮 -->
-{#if !editMode}
-	<div class="edit-toolbar">
+<!-- 单一容器，内部条件渲染内容 -->
+<div class="edit-toolbar" bind:this={toolbarRootEl} class:edit-toolbar--mounted={mountedExternally} class:edit-mode-toolbar={editMode}>
+	{#if !editMode}
 		<button class="edit-main-btn" onclick={enterEdit} title={`编辑${pageName}`}>
 			<iconify-icon icon="material-symbols:edit-rounded" class="text-base"></iconify-icon>
 			编辑{pageName}
 		</button>
-	</div>
-{:else}
-	<!-- 编辑模式工具栏：取消 | 导入密钥 | 添加 | 保存 -->
-	<div class="edit-toolbar edit-mode-toolbar">
-		<button class="edit-btn edit-btn-cancel" onclick={cancelEdit}>
-			<iconify-icon icon="material-symbols:close-rounded" class="text-sm"></iconify-icon>
-			取消
+	{:else}
+		<button class="edit-btn edit-btn-cancel" onclick={cancelEdit} title={persistentEdit ? "重置更改" : "取消编辑"}>
+			<iconify-icon icon={persistentEdit ? "material-symbols:undo-rounded" : "material-symbols:close-rounded"} class="text-sm"></iconify-icon>
+			{persistentEdit ? "重置" : "取消"}
 		</button>
 		<button
 			class="edit-btn edit-btn-key"
@@ -196,7 +236,6 @@
 			{/if}
 		</button>
 
-		<!-- 隐藏的文件选择器 -->
 		<input
 			bind:this={keyFileInput}
 			type="file"
@@ -204,10 +243,10 @@
 			style="display:none"
 			onchange={handleFileSelect}
 		/>
-	</div>
-{/if}
+	{/if}
+</div>
 
-<!-- Token手动输入弹窗（备选，文件导入失败或需要手动粘贴时使用） -->
+<!-- Token手动输入弹窗 -->
 {#if showTokenModal}
 	<div class="token-modal-overlay" onclick={closeTokenModal}>
 		<div class="token-modal" onclick={(e) => e.stopPropagation()}>
@@ -268,7 +307,10 @@
 		flex-wrap: wrap;
 	}
 
-	/* 非编辑态：主编辑按钮 */
+	.edit-toolbar--mounted {
+		margin-bottom: 0;
+	}
+
 	.edit-main-btn {
 		display: inline-flex;
 		align-items: center;
@@ -289,7 +331,6 @@
 		box-shadow: 0 4px 16px hsla(var(--theme-hue, 165), 70%, 50%, 0.4);
 	}
 
-	/* 编辑态按钮 */
 	.edit-btn {
 		display: inline-flex;
 		align-items: center;

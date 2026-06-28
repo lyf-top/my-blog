@@ -12,11 +12,14 @@ const description = "可视化编辑站点全局配置";
   <div class="flex w-full rounded-(--radius-large) relative min-h-32">
     <div class="card-base z-10 px-9 py-6 relative w-full">
       <!-- 页面标题 -->
-      <div class="mb-4">
-        <PageTitle title={title} eyebrow="Config" variant="stacked" />
-        <p class="text-base text-neutral-600 dark:text-neutral-400 leading-relaxed mb-4">
-          在此页面可视化编辑站点全局配置，修改后通过 GitHub API 提交到仓库。
-        </p>
+      <div class="mb-4 flex justify-between items-start gap-4 flex-wrap">
+        <div class="flex-1 min-w-0">
+          <PageTitle title={title} eyebrow="Config" variant="stacked" />
+          <p class="text-base text-neutral-600 dark:text-neutral-400 leading-relaxed mt-3">
+            在此页面可视化编辑站点全局配置，修改后通过 GitHub API 提交到仓库。
+          </p>
+        </div>
+        <div class="page-header-toolbar-slot flex-shrink-0"></div>
       </div>
 
       <!-- 配置编辑器 -->
@@ -29,3 +32,14 @@ const description = "可视化编辑站点全局配置";
 <script define:vars={{ siteConfig }}>
   window.__SITE_CONFIG__ = siteConfig;
 </script>
+
+<style>
+  @media (max-width: 768px) {
+    :has(> .page-header-toolbar-slot) {
+      flex-direction: column;
+    }
+    .page-header-toolbar-slot {
+      width: 100%;
+    }
+  }
+</style>

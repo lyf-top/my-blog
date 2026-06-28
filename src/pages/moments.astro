@@ -3,6 +3,7 @@ import { Image } from "astro:assets";
 import { getCollection } from "astro:content";
 import { Icon } from "astro-icon/components";
 import Comment from "@/components/comment/index.astro";
+import PageTitle from "@/components/common/PageTitle.astro";
 import MomentCard from "@/components/moments/MomentCard.astro";
 import MomentsCover from "@/components/moments/MomentsCover.astro";
 import MomentsEditor from "@/components/edit/MomentsEditor.svelte";
@@ -74,6 +75,15 @@ const albums = await getCollection("album");
 <MainGridLayout title="动态" description="记录生活中的点点滴滴">
   <!-- 微信朋友圈风格封面 -->
   <MomentsCover />
+
+  <!-- 页面标题 -->
+  <div class="mb-4 flex justify-between items-start gap-4 flex-wrap">
+    <div class="flex-1 min-w-0">
+      <PageTitle title="动态" eyebrow="Moments" variant="stacked" />
+      <p class="text-base text-neutral-500 dark:text-neutral-400 leading-relaxed mt-3">记录生活中的点点滴滴</p>
+    </div>
+    <div class="page-header-toolbar-slot flex-shrink-0"></div>
+  </div>
 
   <!-- 说说编辑器（Svelte 组件，编辑按钮和外部数据加载） -->
   <div data-no-swup>
@@ -246,6 +256,15 @@ const albums = await getCollection("album");
       top: -0.625rem;
       left: 0.75rem;
       right: 0.75rem;
+    }
+  }
+
+  @media (max-width: 768px) {
+    :has(> .page-header-toolbar-slot) {
+      flex-direction: column;
+    }
+    .page-header-toolbar-slot {
+      width: 100%;
     }
   }
 </style>

@@ -342,6 +342,7 @@
 <div class="collections-edit-toolbar">
 	<EditToolbar
 		pageName="收藏"
+		mountTo=".page-header-toolbar-slot"
 		{saving}
 		{hasChanges}
 		on:modeChange={(e) => handleModeChange(e)}

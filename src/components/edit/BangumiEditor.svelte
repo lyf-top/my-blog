@@ -430,6 +430,7 @@
 <div class="bangumi-edit-toolbar">
 	<EditToolbar
 		pageName="番剧"
+		mountTo=".page-header-toolbar-slot"
 		{saving}
 		{hasChanges}
 		on:modeChange={(e) => handleModeChange(e)}

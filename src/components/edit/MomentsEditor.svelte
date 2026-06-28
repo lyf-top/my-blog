@@ -476,6 +476,7 @@
 <div class="moments-edit-toolbar">
 	<EditToolbar
 		pageName="说说"
+		mountTo=".page-header-toolbar-slot"
 		showAddButton={true}
 		{saving}
 		{hasChanges}

@@ -290,6 +290,7 @@
 <div class="friends-edit-toolbar">
 	<EditToolbar
 		pageName="友链"
+		mountTo=".page-header-toolbar-slot"
 		{saving}
 		{hasChanges}
 		on:modeChange={(e) => handleModeChange(e)}
