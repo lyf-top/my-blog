@@ -10,6 +10,25 @@ interface Props {
 	links: NavBarLink[];
 }
 
+const imageFiles = import.meta.glob<{ default: ImageMetadata }>(
+	"../../assets/images/**/*.{png,jpg,jpeg,webp,avif,gif}",
+	{ import: "default" },
+);
+
+async function resolveAvatar(src?: string) {
+	if (!src) return "";
+	if (src.startsWith("/") || src.startsWith("http://") || src.startsWith("https://") || src.startsWith("data:")) {
+		return src;
+	}
+	const normalizedPath = `../../${src}`.replace(/\\/g, "/");
+	const loadImage = imageFiles[normalizedPath];
+	if (!loadImage) return `/${src}`;
+	const image = await loadImage();
+	return image.src;
+}
+
+const avatarUrl = await resolveAvatar(profileConfig.avatar);
+
 const processedLinks = Astro.props.links.map((link: NavBarLink) => ({
 	...link,
 	children: link.children?.map((child: NavBarLink | LinkPreset): NavBarLink => {
@@ -27,7 +46,7 @@ const processedLinks = Astro.props.links.map((link: NavBarLink) => ({
 	<div class="nav-drawer-profile">
 		<div class="nav-drawer-avatar-wrap">
 			<img
-				src={url(profileConfig.avatar || "/")}
+				src={avatarUrl}
 				alt={profileConfig.name}
 				class="nav-drawer-avatar"
 			/>
@@ -60,13 +79,15 @@ const processedLinks = Astro.props.links.map((link: NavBarLink) => ({
 				style={`--item-index: ${index}`}
 			>
 				{link.children && link.children.length > 0 ? (
-					<div class="mobile-dropdown">
-						<div class="nav-drawer-link group nav-drawer-section-title">
+					<div class="mobile-dropdown" data-collapsible="true" data-collapsed="false">
+						<button type="button" class="nav-drawer-link group nav-drawer-toggle">
 							<div class="flex items-center gap-3">
+								{link.icon && <Icon name={link.icon} is:inline class="text-[1.25rem] nav-drawer-icon" />}
 								<span class="nav-drawer-link-text">{link.name}</span>
 							</div>
-						</div>
-						<div class="mobile-submenu mobile-submenu--flat">
+							<Icon name="material-symbols:keyboard-arrow-down-rounded" is:inline class="text-[1.25rem] nav-drawer-arrow" />
+						</button>
+						<div class="mobile-submenu">
 							{link.children.map((child) => {
 								if (child.action) {
 									return <button type="button" class="nav-drawer-sublink group" data-action={child.action}><div class="flex items-center gap-3">{child.icon && <Icon name={child.icon} is:inline class="text-[1.1rem]" />}<span>{child.name}</span></div></button>;
@@ -152,6 +173,13 @@ function initNavDrawer() {
 		document.body.style.overflow = '';
 	}
 
+	function toggleCollapsible(toggleEl: HTMLElement) {
+		const dropdown = toggleEl.closest('[data-collapsible]');
+		if (!dropdown) return;
+		const isCollapsed = dropdown.getAttribute('data-collapsed') === 'true';
+		dropdown.setAttribute('data-collapsed', isCollapsed ? 'false' : 'true');
+	}
+
 	closeDrawer();
 
 	if (menuBtn) {
@@ -172,8 +200,16 @@ function initNavDrawer() {
 
 	overlay.addEventListener('click', () => closeDrawer(), { signal });
 
-	// 处理 action 按钮
+	// 处理折叠/展开
 	panel.addEventListener('click', (e) => {
+		const toggleEl = (e.target as HTMLElement).closest('.nav-drawer-toggle');
+		if (toggleEl) {
+			e.stopPropagation();
+			toggleCollapsible(toggleEl as HTMLElement);
+			return;
+		}
+
+		// 处理 action 按钮
 		const actionBtn = (e.target as HTMLElement).closest('[data-action]');
 		if (actionBtn) {
 			const action = actionBtn.getAttribute('data-action');
