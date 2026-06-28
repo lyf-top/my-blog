@@ -67,7 +67,12 @@
 				hiddenWrapper = wrapper as HTMLElement;
 				hiddenWrapper.style.display = "none";
 			}
-			mountTarget.appendChild(toolbarRootEl);
+			const firstChild = mountTarget.firstChild;
+			if (firstChild) {
+				mountTarget.insertBefore(toolbarRootEl, firstChild);
+			} else {
+				mountTarget.appendChild(toolbarRootEl);
+			}
 			mountedExternally = true;
 		}
 	}
@@ -299,8 +304,8 @@
 
 <style>
 	.edit-toolbar {
-		display: flex;
-		justify-content: flex-end;
+		display: inline-flex;
+		justify-content: flex-start;
 		align-items: center;
 		gap: 8px;
 		margin-bottom: 12px;
@@ -315,20 +320,28 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		padding: 8px 18px;
-		border-radius: 12px;
-		border: none;
-		background: hsl(var(--theme-hue, 165), 70%, 50%);
-		color: white;
+		padding: 8px 16px;
+		border-radius: 8px;
+		border: 1px solid rgba(0, 0, 0, 0.9);
+		background: transparent;
+		color: rgba(0, 0, 0, 0.9);
 		font-size: 14px;
-		font-weight: 600;
+		font-weight: 500;
 		cursor: pointer;
-		transition: all 0.2s;
-		box-shadow: 0 2px 8px hsla(var(--theme-hue, 165), 70%, 50%, 0.3);
+		transition: background-color 0.2s, color 0.2s;
+		white-space: nowrap;
 	}
 	.edit-main-btn:hover {
-		transform: translateY(-1px);
-		box-shadow: 0 4px 16px hsla(var(--theme-hue, 165), 70%, 50%, 0.4);
+		background: rgba(0, 0, 0, 0.9);
+		color: white;
+	}
+	:global(.dark) .edit-main-btn {
+		border-color: rgba(255, 255, 255, 0.9);
+		color: rgba(255, 255, 255, 0.9);
+	}
+	:global(.dark) .edit-main-btn:hover {
+		background: rgba(255, 255, 255, 0.9);
+		color: rgba(0, 0, 0, 0.9);
 	}
 
 	.edit-btn {
@@ -336,44 +349,43 @@
 		align-items: center;
 		gap: 4px;
 		padding: 7px 14px;
-		border-radius: 10px;
+		border-radius: 8px;
 		font-size: 13px;
 		font-weight: 500;
 		cursor: pointer;
-		transition: all 0.15s;
-		border: 1.5px solid transparent;
+		transition: all 0.2s;
+		border: 1px solid transparent;
 		background: transparent;
 		white-space: nowrap;
 	}
 
 	.edit-btn-cancel {
-		border-color: var(--border, #e5e7eb);
-		color: var(--text-secondary, #6b7280);
-		background: var(--card-bg, white);
+		border-color: rgba(0, 0, 0, 0.15);
+		color: rgba(0, 0, 0, 0.6);
 	}
 	.edit-btn-cancel:hover {
-		border-color: var(--text-secondary, #6b7280);
-		color: var(--text-color, #1f2937);
+		border-color: rgba(0, 0, 0, 0.9);
+		color: rgba(0, 0, 0, 0.9);
+		background: rgba(0, 0, 0, 0.9);
+		color: white;
 	}
 	:global(.dark) .edit-btn-cancel {
-		background: rgba(255, 255, 255, 0.05);
 		border-color: rgba(255, 255, 255, 0.15);
-		color: rgba(255, 255, 255, 0.7);
+		color: rgba(255, 255, 255, 0.6);
 	}
 	:global(.dark) .edit-btn-cancel:hover {
-		border-color: rgba(255, 255, 255, 0.3);
-		color: white;
-		background: rgba(255, 255, 255, 0.1);
+		border-color: rgba(255, 255, 255, 0.9);
+		background: rgba(255, 255, 255, 0.9);
+		color: rgba(0, 0, 0, 0.9);
 	}
 
 	.edit-btn-key {
-		border-color: var(--border, #e5e7eb);
-		color: var(--text-secondary, #6b7280);
-		background: var(--card-bg, white);
+		border-color: rgba(0, 0, 0, 0.15);
+		color: rgba(0, 0, 0, 0.6);
 	}
 	.edit-btn-key:hover {
-		border-color: hsl(var(--theme-hue, 165), 60%, 50%);
-		color: hsl(var(--theme-hue, 165), 70%, 45%);
+		border-color: hsl(var(--theme-hue, 165), 70%, 45%);
+		color: hsl(var(--theme-hue, 165), 70%, 40%);
 	}
 	.edit-btn-key-active {
 		border-color: #22c55e !important;
@@ -381,13 +393,12 @@
 		background: rgba(34, 197, 94, 0.08) !important;
 	}
 	:global(.dark) .edit-btn-key {
-		background: rgba(255, 255, 255, 0.05);
 		border-color: rgba(255, 255, 255, 0.15);
-		color: rgba(255, 255, 255, 0.7);
+		color: rgba(255, 255, 255, 0.6);
 	}
 	:global(.dark) .edit-btn-key:hover {
-		border-color: hsl(var(--theme-hue, 165), 60%, 60%);
-		color: hsl(var(--theme-hue, 165), 70%, 65%);
+		border-color: hsl(var(--theme-hue, 165), 70%, 55%);
+		color: hsl(var(--theme-hue, 165), 70%, 60%);
 	}
 	:global(.dark) .edit-btn-key-active {
 		border-color: #4ade80 !important;
@@ -396,30 +407,33 @@
 	}
 
 	.edit-btn-add {
-		border-color: hsl(var(--theme-hue, 165), 60%, 60%);
-		color: hsl(var(--theme-hue, 165), 70%, 45%);
-		background: color-mix(in srgb, hsl(var(--theme-hue, 165), 70%, 50%) 8%, transparent);
+		border-color: rgba(0, 0, 0, 0.15);
+		color: rgba(0, 0, 0, 0.6);
 	}
 	.edit-btn-add:hover {
-		background: color-mix(in srgb, hsl(var(--theme-hue, 165), 70%, 50%) 15%, transparent);
-		border-color: hsl(var(--theme-hue, 165), 70%, 50%);
+		border-color: hsl(var(--theme-hue, 165), 70%, 45%);
+		background: hsla(var(--theme-hue, 165), 70%, 50%, 0.1);
+		color: hsl(var(--theme-hue, 165), 70%, 40%);
 	}
 	:global(.dark) .edit-btn-add {
-		border-color: hsl(var(--theme-hue, 165), 60%, 50%);
+		border-color: rgba(255, 255, 255, 0.15);
+		color: rgba(255, 255, 255, 0.6);
+	}
+	:global(.dark) .edit-btn-add:hover {
+		border-color: hsl(var(--theme-hue, 165), 70%, 55%);
+		background: hsla(var(--theme-hue, 165), 70%, 50%, 0.15);
 		color: hsl(var(--theme-hue, 165), 70%, 60%);
-		background: hsla(var(--theme-hue, 165), 70%, 50%, 0.1);
 	}
 
 	.edit-btn-save {
+		border: 1px solid hsl(var(--theme-hue, 165), 70%, 50%);
 		background: hsl(var(--theme-hue, 165), 70%, 50%);
 		color: white;
 		font-weight: 600;
-		box-shadow: 0 2px 8px hsla(var(--theme-hue, 165), 70%, 50%, 0.3);
 	}
 	.edit-btn-save:hover:not(:disabled) {
 		background: hsl(var(--theme-hue, 165), 75%, 45%);
-		transform: translateY(-1px);
-		box-shadow: 0 4px 16px hsla(var(--theme-hue, 165), 70%, 50%, 0.4);
+		border-color: hsl(var(--theme-hue, 165), 75%, 45%);
 	}
 	.edit-btn-save:disabled {
 		opacity: 0.6;
