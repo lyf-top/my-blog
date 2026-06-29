@@ -3,11 +3,13 @@
 	import EditToast from "./EditToast.svelte";
 	import { marked } from "marked";
 	import {
-		getStoredToken,
-		setStoredToken,
-		hasValidToken,
+		getStoredAppId,
+		setStoredAppId,
+		setStoredPrivateKey,
+		clearStoredCredentials,
+		hasValidCredentials,
 		readFileAsText,
-		validateToken,
+		validateCredentials,
 		showToast,
 		ensureIconify,
 		getRepoFile,
@@ -40,7 +42,9 @@
 	let savePath = $state<string>("");
 	let showPreview = $state(false);
 	let showTokenModal = $state(false);
-	let tokenInput = $state("");
+	let appIdInput = $state("");
+	let importedPem = $state("");
+	let pemFileName = $state("");
 	let validatingToken = $state(false);
 	let saveSuccess = $state(false);
 
@@ -443,9 +447,9 @@
 			}
 		}
 
-		if (!hasValidToken()) {
-			showToast("请先导入密钥", "warning");
-			keyFileInput?.click();
+		if (!hasValidCredentials()) {
+			showToast("请先导入 GitHub App 私钥", "warning");
+			showTokenModal = true;
 			return;
 		}
 
@@ -496,14 +500,15 @@
 		}
 	}
 
-	// ============ Token handling ============
+	// ============ GitHub App 密钥处理 ============
 	function handleImportKey() {
-		if (hasToken) {
-			if (confirm("已导入密钥。点击确定重新导入，点击取消保留当前密钥。")) {
-				keyFileInput?.click();
-			}
-			return;
-		}
+		appIdInput = getStoredAppId();
+		importedPem = "";
+		pemFileName = "";
+		showTokenModal = true;
+	}
+
+	function triggerPemSelect() {
 		keyFileInput?.click();
 	}
 
@@ -516,47 +521,52 @@
 		}
 		try {
 			const text = await readFileAsText(file);
-			if (text.includes("-----BEGIN") && text.includes("PRIVATE KEY-----")) {
-				showToast("检测到PEM私钥，请导入包含GitHub PAT Token的文本文件", "warning");
-				input.value = "";
-				tokenInput = "";
-				showTokenModal = true;
-				return;
+			pemFileName = file.name;
+			importedPem = text;
+			if (!text.includes("BEGIN") || !text.includes("PRIVATE KEY")) {
+				showToast("请选择有效的 GitHub App 私钥文件（.pem 格式）", "warning");
 			}
-			const token = text.trim();
-			if (!token) {
-				showToast("文件内容为空", "error");
-				input.value = "";
-				return;
-			}
-			await saveTokenValue(token);
 		} catch {
 			showToast("读取文件失败", "error");
 		}
 		input.value = "";
 	}
 
-	async function saveTokenValue(token: string) {
-		const trimmed = token.trim();
-		if (!trimmed) {
-			showToast("请输入Token", "warning");
+	async function handleSaveKey() {
+		const trimmedAppId = appIdInput.trim();
+		if (!trimmedAppId) {
+			showToast("请输入 GitHub App ID", "warning");
+			return;
+		}
+		if (!importedPem) {
+			showToast("请选择 .pem 私钥文件", "warning");
+			return;
+		}
+		if (!importedPem.includes("BEGIN") || !importedPem.includes("PRIVATE KEY")) {
+			showToast("私钥格式不正确，请导入有效的 .pem 文件", "error");
 			return;
 		}
 		validatingToken = true;
-		const ok = await validateToken(trimmed);
+		const result = await validateCredentials(trimmedAppId, importedPem);
 		validatingToken = false;
-		if (!ok) {
-			showToast("Token验证失败，请检查Token权限（需要repo权限）", "error");
+		if (!result.ok) {
+			showToast(`验证失败：${result.error}`, "error");
 			return;
 		}
-		setStoredToken(trimmed);
+		setStoredAppId(trimmedAppId);
+		setStoredPrivateKey(importedPem);
 		hasToken = true;
 		showTokenModal = false;
-		showToast("密钥导入成功！", "success");
+		showToast("GitHub App 私钥导入成功！", "success");
 	}
 
-	async function handleSaveToken() {
-		await saveTokenValue(tokenInput);
+	function clearKey() {
+		clearStoredCredentials();
+		hasToken = false;
+		appIdInput = "";
+		importedPem = "";
+		pemFileName = "";
+		showToast("已清除密钥", "info");
 	}
 
 	// ============ Import MD file ============
@@ -783,8 +793,7 @@
 	// ============ Init ============
 	onMount(() => {
 		ensureIconify();
-		hasToken = hasValidToken();
-		tokenInput = getStoredToken();
+		hasToken = hasValidCredentials();
 
 		// Check URL params for edit mode (?path=xxx or ?slug=xxx)
 		const params = new URLSearchParams(window.location.search);
@@ -844,14 +853,14 @@
 				}
 			}}
 			disabled={saving || loading}
-			title={hasToken ? (editMode ? "保存文章" : "发布文章") : "导入密钥"}
+			title={hasToken ? (editMode ? "保存文章" : "发布文章") : "配置GitHub App"}
 		>
 			{#if saving}
 				<iconify-icon icon="material-symbols:progress-activity-rounded" class="text-lg animate-spin"></iconify-icon>
 				<span class="btn-text">{editMode ? "保存中..." : "发布中..."}</span>
 			{:else}
 				<iconify-icon icon={hasToken ? (editMode ? "material-symbols:save-rounded" : "material-symbols:send-rounded") : "material-symbols:key-rounded"} class="text-lg"></iconify-icon>
-				<span class="btn-text">{hasToken ? (editMode ? "保存" : "发布") : "导入密钥"}</span>
+				<span class="btn-text">{hasToken ? (editMode ? "保存" : "发布") : "配置密钥"}</span>
 			{/if}
 		</button>
 
@@ -863,11 +872,11 @@
 			style="display:none"
 			onchange={handleMdFileSelect}
 		/>
-		<!-- 隐藏的密钥文件选择器 -->
+		<!-- 隐藏的私钥文件选择器 -->
 		<input
 			bind:this={keyFileInput}
 			type="file"
-			accept=".txt,.pem,.key,text/plain"
+			accept=".pem,.key,application/x-pem-file"
 			style="display:none"
 			onchange={handleKeyFileSelect}
 		/>
@@ -1074,21 +1083,21 @@
 			<div class="sidebar-section token-status">
 				<div class="token-indicator">
 					<span class="status-dot" class:ok={hasToken}></span>
-					<span>{hasToken ? "已连接GitHub" : "未导入密钥"}</span>
+					<span>{hasToken ? "已连接GitHub" : "未配置GitHub App"}</span>
 				</div>
 			</div>
 		</div>
 	</div>
 {/if}
 
-<!-- Token手动输入弹窗 -->
+<!-- GitHub App 密钥配置弹窗 -->
 {#if showTokenModal}
 	<div class="modal-overlay" onclick={() => (showTokenModal = false)}>
 		<div class="modal-content" onclick={(e) => e.stopPropagation()}>
 			<div class="modal-header">
 				<h3>
-					<iconify-icon icon="material-symbols:key-rounded" class="text-lg"></iconify-icon>
-					输入 GitHub Token
+					<iconify-icon icon="material-symbols:vpn-key-rounded" class="text-lg"></iconify-icon>
+					GitHub App 私钥配置
 				</h3>
 				<button class="modal-close" onclick={() => (showTokenModal = false)}>
 					<iconify-icon icon="material-symbols:close-rounded" class="text-xl"></iconify-icon>
@@ -1096,34 +1105,67 @@
 			</div>
 			<div class="modal-body">
 				<p class="modal-desc">
-					请输入您的 GitHub Personal Access Token。Token 需要有 <strong>repo</strong> 权限。
+					请输入您的 GitHub App ID 并导入私钥文件（.pem）。需要授予 <strong>Contents: Read &amp; Write</strong> 权限。
 				</p>
+				<label class="modal-label">
+					<iconify-icon icon="material-symbols:apps-rounded" class="text-sm"></iconify-icon>
+					App ID
+				</label>
 				<input
-					type="password"
-					bind:value={tokenInput}
-					placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+					type="text"
+					bind:value={appIdInput}
+					placeholder="例如：123456"
 					class="modal-input"
-					onkeydown={(e) => e.key === "Enter" && handleSaveToken()}
 				/>
-				<div class="modal-help">
-					<a
-						href="https://github.com/settings/tokens/new?scopes=repo&description=Blog%20Write%20Token"
-						target="_blank"
-						rel="noopener noreferrer"
-					>
-						<iconify-icon icon="material-symbols:open-in-new-rounded" class="text-sm"></iconify-icon>
-						点击生成Token（需勾选 repo 权限）
-					</a>
+				<label class="modal-label">
+					<iconify-icon icon="material-symbols:description-rounded" class="text-sm"></iconify-icon>
+					私钥文件（.pem）
+				</label>
+				<div class="pem-file-area">
+					<button type="button" class="pem-file-btn" onclick={triggerPemSelect}>
+						<iconify-icon icon="material-symbols:upload-file-rounded" class="text-base"></iconify-icon>
+						{pemFileName ? "重新选择文件" : "选择 .pem 文件"}
+					</button>
+					{pemFileName && (
+						<span class="pem-file-name">
+							<iconify-icon icon="material-symbols:check-circle-rounded" class="text-sm" style="color:#22c55e"></iconify-icon>
+							{pemFileName}
+						</span>
+					)}
 				</div>
+				<div class="modal-help">
+					<details>
+						<summary>
+							<iconify-icon icon="material-symbols:help-outline-rounded" class="text-sm"></iconify-icon>
+							如何创建 GitHub App？
+						</summary>
+						<div class="modal-help-content">
+							<ol>
+								<li>前往 GitHub <strong>Settings → Developer settings → GitHub Apps</strong></li>
+								<li>点击 <strong>New GitHub App</strong></li>
+								<li>填写名称、Homepage URL，Webhook URL 可留空</li>
+								<li><strong>Repository permissions</strong> → Contents: Read &amp; write</li>
+								<li>创建后记录 <strong>App ID</strong>，生成并下载 .pem 私钥</li>
+								<li>点击 <strong>Install App</strong> 安装到您的博客仓库</li>
+							</ol>
+						</div>
+					</details>
+				</div>
+				{#if hasToken && !validatingToken}
+					<button class="modal-clear-btn" onclick={clearKey}>
+						<iconify-icon icon="material-symbols:delete-outline-rounded" class="text-sm"></iconify-icon>
+						清除已保存的密钥
+					</button>
+				{/if}
 			</div>
 			<div class="modal-footer">
 				<button class="modal-btn modal-btn-cancel" onclick={() => (showTokenModal = false)}>取消</button>
-				<button class="modal-btn modal-btn-confirm" onclick={handleSaveToken} disabled={validatingToken}>
+				<button class="modal-btn modal-btn-confirm" onclick={handleSaveKey} disabled={validatingToken}>
 					{#if validatingToken}
 						<iconify-icon icon="material-symbols:progress-activity-rounded" class="text-sm animate-spin"></iconify-icon>
 						验证中...
 					{:else}
-						确认
+						确认导入
 					{/if}
 				</button>
 			</div>
@@ -1917,6 +1959,112 @@
 	}
 	.modal-help a:hover {
 		text-decoration: underline;
+	}
+	.modal-label {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--text-color, #1f2937);
+		margin-bottom: 6px;
+		margin-top: 12px;
+	}
+	:global(.dark) .modal-label {
+		color: #d1d5db;
+	}
+	.pem-file-area {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex-wrap: wrap;
+	}
+	.pem-file-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 9px 16px;
+		border-radius: 10px;
+		border: 1.5px dashed hsl(var(--theme-hue, 165), 70%, 50%);
+		background: hsla(var(--theme-hue, 165), 70%, 50%, 0.05);
+		color: hsl(var(--theme-hue, 165), 70%, 45%);
+		font-size: 13px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+	.pem-file-btn:hover {
+		background: hsla(var(--theme-hue, 165), 70%, 50%, 0.12);
+	}
+	:global(.dark) .pem-file-btn {
+		color: hsl(var(--theme-hue, 165), 70%, 60%);
+		background: hsla(var(--theme-hue, 165), 70%, 50%, 0.1);
+	}
+	.pem-file-name {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 13px;
+		color: #16a34a;
+		font-weight: 500;
+	}
+	.modal-help summary {
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-weight: 500;
+		color: hsl(var(--theme-hue, 165), 70%, 45%);
+		user-select: none;
+		font-size: 12px;
+	}
+	.modal-help summary:hover {
+		text-decoration: underline;
+	}
+	.modal-help-content {
+		margin-top: 10px;
+		padding: 12px;
+		background: var(--bg-secondary, rgba(0,0,0,0.02));
+		border-radius: 8px;
+		line-height: 1.8;
+		font-size: 12px;
+		color: var(--text-secondary, #666);
+	}
+	:global(.dark) .modal-help-content {
+		background: rgba(255,255,255,0.04);
+		color: #999;
+	}
+	.modal-help-content ol {
+		margin: 0;
+		padding-left: 18px;
+	}
+	.modal-help-content ul {
+		margin: 4px 0;
+		padding-left: 18px;
+	}
+	.modal-clear-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		margin-top: 16px;
+		padding: 6px 12px;
+		border-radius: 8px;
+		border: 1px solid rgba(239, 68, 68, 0.3);
+		background: rgba(239, 68, 68, 0.05);
+		color: #ef4444;
+		font-size: 12px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+	.modal-clear-btn:hover {
+		background: rgba(239, 68, 68, 0.1);
+		border-color: #ef4444;
+	}
+	:global(.dark) .modal-clear-btn {
+		color: #f87171;
+		border-color: rgba(248, 113, 113, 0.3);
+		background: rgba(248, 113, 113, 0.08);
 	}
 
 	.modal-footer {

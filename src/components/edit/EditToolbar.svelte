@@ -2,12 +2,13 @@
 	import { onMount, createEventDispatcher } from "svelte";
 	const dispatch = createEventDispatcher();
 	import {
-		getStoredToken,
-		setStoredToken,
-		clearStoredToken,
-		hasValidToken,
+		getStoredAppId,
+		setStoredAppId,
+		setStoredPrivateKey,
+		clearStoredCredentials,
+		hasValidCredentials,
 		readFileAsText,
-		validateToken,
+		validateCredentials,
 		showToast,
 		ensureIconify,
 	} from "@/utils/editMode";
@@ -31,10 +32,12 @@
 	} = $props();
 
 	let editMode = $state(false);
-	let hasToken = $state(false);
-	let showTokenModal = $state(false);
-	let tokenInput = $state("");
-	let validatingToken = $state(false);
+	let hasKey = $state(false);
+	let showKeyModal = $state(false);
+	let appIdInput = $state("");
+	let validatingKey = $state(false);
+	let pemFileName = $state("");
+	let importedPem = $state("");
 
 	let keyFileInput = $state<HTMLInputElement | null>(null);
 	let toolbarRootEl = $state<HTMLDivElement>();
@@ -44,8 +47,8 @@
 
 	onMount(() => {
 		ensureIconify();
-		hasToken = hasValidToken();
-		tokenInput = getStoredToken();
+		hasKey = hasValidCredentials();
+		appIdInput = getStoredAppId();
 		if (startInEditMode) {
 			editMode = true;
 		}
@@ -105,77 +108,82 @@
 	}
 
 	function handleImportKey() {
-		if (hasToken) {
-			if (confirm("已导入密钥。点击确定重新导入，点击取消保留当前密钥。")) {
-				keyFileInput?.click();
+		if (hasKey) {
+			if (confirm("已导入私钥。点击确定重新导入，点击取消保留当前密钥。")) {
+				appIdInput = getStoredAppId();
+				importedPem = "";
+				pemFileName = "";
+				showKeyModal = true;
 			}
 			return;
 		}
-		keyFileInput?.click();
+		appIdInput = getStoredAppId();
+		importedPem = "";
+		pemFileName = "";
+		showKeyModal = true;
 	}
 
-	async function handleFileSelect(e: Event) {
+	function handleFileSelect(e: Event) {
 		const input = e.target as HTMLInputElement;
 		const file = input.files?.[0];
 		if (!file) {
 			input.value = "";
 			return;
 		}
-		try {
-			const content = await readFileAsText(file);
-			if (content.includes("-----BEGIN") && content.includes("PRIVATE KEY-----")) {
-				showToast("检测到PEM私钥，当前版本使用GitHub PAT Token认证，请导入包含Token的文本文件", "warning");
-				input.value = "";
-				tokenInput = "";
-				showTokenModal = true;
-				return;
+		pemFileName = file.name;
+		readFileAsText(file).then((content) => {
+			importedPem = content;
+			if (!content.includes("BEGIN") || !content.includes("PRIVATE KEY")) {
+				showToast("请选择有效的 GitHub App 私钥文件（.pem 格式）", "warning");
 			}
-			const token = content.trim();
-			if (!token) {
-				showToast("文件内容为空", "error");
-				input.value = "";
-				return;
-			}
-			await saveTokenValue(token);
-		} catch (err) {
+		}).catch(() => {
 			showToast("读取文件失败", "error");
-		}
+		});
 		input.value = "";
 	}
 
-	function openManualInput() {
-		tokenInput = getStoredToken();
-		showTokenModal = true;
+	function triggerFileSelect() {
+		keyFileInput?.click();
 	}
 
-	async function saveTokenValue(token: string) {
-		const trimmed = token.trim();
-		if (!trimmed) {
-			showToast("请输入Token", "warning");
+	async function handleSaveKey() {
+		const trimmedAppId = appIdInput.trim();
+		if (!trimmedAppId) {
+			showToast("请输入 GitHub App ID", "warning");
 			return;
 		}
-		validatingToken = true;
-		const ok = await validateToken(trimmed);
-		validatingToken = false;
-		if (!ok) {
-			showToast("Token验证失败，请检查Token权限（需要gist权限）", "error");
+		if (!importedPem) {
+			showToast("请选择 .pem 私钥文件", "warning");
 			return;
 		}
-		setStoredToken(trimmed);
-		hasToken = true;
-		showTokenModal = false;
-		showToast("密钥导入成功！", "success");
-		dispatch("tokenReady", { token: trimmed });
+		if (!importedPem.includes("BEGIN") || !importedPem.includes("PRIVATE KEY")) {
+			showToast("私钥格式不正确，请导入有效的 .pem 文件", "error");
+			return;
+		}
+
+		validatingKey = true;
+		const result = await validateCredentials(trimmedAppId, importedPem);
+		validatingKey = false;
+
+		if (!result.ok) {
+			showToast(`验证失败：${result.error}`, "error");
+			return;
+		}
+
+		setStoredAppId(trimmedAppId);
+		setStoredPrivateKey(importedPem);
+		hasKey = true;
+		showKeyModal = false;
+		showToast("GitHub App 私钥导入成功！", "success");
+		dispatch("tokenReady");
 	}
 
-	async function handleSaveToken() {
-		await saveTokenValue(tokenInput);
-	}
-
-	function clearToken() {
-		clearStoredToken();
-		tokenInput = "";
-		hasToken = false;
+	function clearKey() {
+		clearStoredCredentials();
+		hasKey = false;
+		appIdInput = "";
+		importedPem = "";
+		pemFileName = "";
 		showToast("已清除密钥", "info");
 	}
 
@@ -184,16 +192,16 @@
 	}
 
 	function handleSave() {
-		if (!hasValidToken()) {
-			showToast("请先导入密钥再保存", "warning");
-			keyFileInput?.click();
+		if (!hasValidCredentials()) {
+			showToast("请先导入 GitHub App 私钥再保存", "warning");
+			showKeyModal = true;
 			return;
 		}
 		dispatch("save");
 	}
 
-	function closeTokenModal() {
-		showTokenModal = false;
+	function closeKeyModal() {
+		showKeyModal = false;
 	}
 </script>
 
@@ -211,15 +219,15 @@
 		</button>
 		<button
 			class="edit-btn edit-btn-key"
-			class:edit-btn-key-active={hasToken}
+			class:edit-btn-key-active={hasKey}
 			onclick={handleImportKey}
-			title={hasToken ? "已导入密钥，点击重新导入" : "点击选择密钥文件"}
+			title={hasKey ? "已导入私钥，点击重新导入" : "点击导入 GitHub App 私钥"}
 		>
 			<iconify-icon
-				icon={hasToken ? "material-symbols:check-circle-rounded" : "material-symbols:key-rounded"}
+				icon={hasKey ? "material-symbols:check-circle-rounded" : "material-symbols:vpn-key-rounded"}
 				class="text-sm"
 			></iconify-icon>
-			{hasToken ? "已导入" : "导入密钥"}
+			{hasKey ? "已导入" : "导入密钥"}
 		</button>
 		{#if showAddButton !== false}
 			<button class="edit-btn edit-btn-add" onclick={handleAdd}>
@@ -244,57 +252,101 @@
 		<input
 			bind:this={keyFileInput}
 			type="file"
-			accept=".txt,.pem,.key,text/plain"
+			accept=".pem,.key,application/x-pem-file"
 			style="display:none"
 			onchange={handleFileSelect}
 		/>
 	{/if}
 </div>
 
-<!-- Token手动输入弹窗 -->
-{#if showTokenModal}
-	<div class="token-modal-overlay" onclick={closeTokenModal}>
-		<div class="token-modal" onclick={(e) => e.stopPropagation()}>
-			<div class="token-modal-header">
+<!-- GitHub App 密钥配置弹窗 -->
+{#if showKeyModal}
+	<div class="key-modal-overlay" onclick={closeKeyModal}>
+		<div class="key-modal" onclick={(e) => e.stopPropagation()}>
+			<div class="key-modal-header">
 				<h3>
-					<iconify-icon icon="material-symbols:key-rounded" class="text-lg mr-2"></iconify-icon>
-					输入 GitHub Token
+					<iconify-icon icon="material-symbols:vpn-key-rounded" class="text-lg mr-2"></iconify-icon>
+					GitHub App 私钥配置
 				</h3>
-				<button class="token-modal-close" onclick={closeTokenModal}>
+				<button class="key-modal-close" onclick={closeKeyModal}>
 					<iconify-icon icon="material-symbols:close-rounded" class="text-xl"></iconify-icon>
 				</button>
 			</div>
-			<div class="token-modal-body">
-				<p class="token-modal-desc">
-					请输入您的 GitHub Personal Access Token。Token 需要有 <strong>gist</strong> 权限。
+			<div class="key-modal-body">
+				<p class="key-modal-desc">
+					请输入您的 GitHub App ID 并导入私钥文件（.pem）。需要在 GitHub 上创建一个 GitHub App 并安装到您的博客仓库，授予 <strong>Contents: Read &amp; Write</strong> 权限（如需编辑说说/友链/收藏等 Gist 数据，还需 <strong>Gists: Read &amp; Write</strong> 权限）。
 				</p>
+
+				<label class="key-field-label">
+					<iconify-icon icon="material-symbols:apps-rounded" class="text-sm"></iconify-icon>
+					App ID
+				</label>
 				<input
-					type="password"
-					bind:value={tokenInput}
-					placeholder="ghp_xxxxxxxxxxxxxxxxxxxx 或 github_pat_xxxxxxxx"
-					class="token-input"
-					onkeydown={(e) => e.key === "Enter" && handleSaveToken()}
+					type="text"
+					bind:value={appIdInput}
+					placeholder="例如：123456"
+					class="key-input"
 				/>
-				<div class="token-help">
-					<a
-						href="https://github.com/settings/tokens/new?scopes=gist&description=Blog%20Edit%20Token"
-						target="_blank"
-						rel="noopener noreferrer"
-						class="token-help-link"
-					>
-						<iconify-icon icon="material-symbols:open-in-new-rounded" class="text-sm"></iconify-icon>
-						点击生成Token（需勾选 gist 权限）
-					</a>
+
+				<label class="key-field-label">
+					<iconify-icon icon="material-symbols:description-rounded" class="text-sm"></iconify-icon>
+					私钥文件（.pem）
+				</label>
+				<div class="key-file-area">
+					<button type="button" class="key-file-btn" onclick={triggerFileSelect}>
+						<iconify-icon icon="material-symbols:upload-file-rounded" class="text-base"></iconify-icon>
+						{pemFileName ? "重新选择文件" : "选择 .pem 文件"}
+					</button>
+					{pemFileName && (
+						<span class="key-file-name">
+							<iconify-icon icon="material-symbols:check-circle-rounded" class="text-sm text-green-500"></iconify-icon>
+							{pemFileName}
+						</span>
+					)}
 				</div>
+
+				<div class="key-help">
+					<details>
+						<summary>
+							<iconify-icon icon="material-symbols:help-outline-rounded" class="text-sm"></iconify-icon>
+							如何创建 GitHub App 并获取私钥？
+						</summary>
+						<div class="key-help-content">
+							<ol>
+								<li>前往 GitHub <strong>Settings → Developer settings → GitHub Apps</strong></li>
+								<li>点击 <strong>New GitHub App</strong></li>
+								<li>填写名称、Homepage URL（博客地址）、Webhook URL 可留空（取消 Active webhook）</li>
+								<li>在 <strong>Repository permissions</strong> 中：
+									<ul>
+										<li>Contents: Read &amp; write</li>
+										<li>Gists: Read &amp; write（可选，用于友链/说说/收藏等）</li>
+									</ul>
+								</li>
+								<li>选择 <strong>Only on this account</strong> 后创建</li>
+								<li>创建后在 App 详情页找到 <strong>App ID</strong>（数字）</li>
+								<li>下滑到 <strong>Private keys</strong> 点击 <strong>Generate a private key</strong> 下载 .pem 文件</li>
+								<li>左侧菜单点击 <strong>Install App</strong>，安装到您的博客仓库</li>
+							</ol>
+						</div>
+					</details>
+				</div>
+
+				{#if hasKey && !validatingKey}
+					<button class="key-clear-btn" onclick={clearKey}>
+						<iconify-icon icon="material-symbols:delete-outline-rounded" class="text-sm"></iconify-icon>
+						清除已保存的密钥
+					</button>
+				{/if}
 			</div>
-			<div class="token-modal-footer">
-				<button class="token-btn token-btn-cancel" onclick={closeTokenModal}>取消</button>
-				<button class="token-btn token-btn-confirm" onclick={handleSaveToken} disabled={validatingToken}>
-					{#if validatingToken}
+			<div class="key-modal-footer">
+				<button class="key-btn key-btn-cancel" onclick={closeKeyModal}>取消</button>
+				<button class="key-btn key-btn-confirm" onclick={handleSaveKey} disabled={validatingKey}>
+					{#if validatingKey}
 						<iconify-icon icon="material-symbols:progress-activity-rounded" class="text-sm animate-spin mr-1"></iconify-icon>
 						验证中...
 					{:else}
-						确认
+						<iconify-icon icon="material-symbols:check-rounded" class="text-sm mr-1"></iconify-icon>
+						确认导入
 					{/if}
 				</button>
 			</div>
@@ -368,9 +420,8 @@
 	}
 	.edit-btn-cancel:hover {
 		border-color: rgba(0, 0, 0, 0.9);
-		color: rgba(0, 0, 0, 0.9);
-		background: rgba(0, 0, 0, 0.9);
 		color: white;
+		background: rgba(0, 0, 0, 0.9);
 	}
 	:global(.dark) .edit-btn-cancel {
 		border-color: rgba(255, 255, 255, 0.15);
@@ -443,8 +494,8 @@
 		cursor: not-allowed;
 	}
 
-	/* Token 手动输入弹窗 */
-	.token-modal-overlay {
+	/* ====== 密钥配置弹窗 ====== */
+	.key-modal-overlay {
 		position: fixed;
 		inset: 0;
 		background: rgba(0, 0, 0, 0.5);
@@ -461,36 +512,39 @@
 		to { opacity: 1; }
 	}
 
-	.token-modal {
+	.key-modal {
 		background: var(--card-bg, white);
 		border-radius: 16px;
 		width: 100%;
-		max-width: 420px;
+		max-width: 480px;
 		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 		animation: slideUp 0.25s ease;
 		overflow: hidden;
 		border: 1px solid var(--border, rgba(0,0,0,0.08));
+		max-height: 90vh;
+		overflow-y: auto;
 	}
 	@keyframes slideUp {
 		from { transform: translateY(20px); opacity: 0; }
 		to { transform: translateY(0); opacity: 1; }
 	}
-	:global(.dark) .token-modal {
+	:global(.dark) .key-modal {
 		background: #1a1a2e;
 		border-color: rgba(255, 255, 255, 0.1);
 	}
 
-	.token-modal-header {
+	.key-modal-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		padding: 16px 20px 12px;
 		border-bottom: 1px solid var(--border, rgba(0,0,0,0.08));
+		flex-shrink: 0;
 	}
-	:global(.dark) .token-modal-header {
+	:global(.dark) .key-modal-header {
 		border-bottom-color: rgba(255, 255, 255, 0.1);
 	}
-	.token-modal-header h3 {
+	.key-modal-header h3 {
 		margin: 0;
 		font-size: 16px;
 		font-weight: 700;
@@ -498,10 +552,10 @@
 		align-items: center;
 		color: var(--text-color, #1a1a2e);
 	}
-	:global(.dark) .token-modal-header h3 {
+	:global(.dark) .key-modal-header h3 {
 		color: #f0f0f0;
 	}
-	.token-modal-close {
+	.key-modal-close {
 		width: 30px;
 		height: 30px;
 		border-radius: 8px;
@@ -514,78 +568,188 @@
 		color: #888;
 		transition: all 0.15s;
 	}
-	.token-modal-close:hover {
+	.key-modal-close:hover {
 		background: rgba(0, 0, 0, 0.06);
 		color: #333;
 	}
-	:global(.dark) .token-modal-close:hover {
+	:global(.dark) .key-modal-close:hover {
 		background: rgba(255, 255, 255, 0.1);
 		color: #fff;
 	}
 
-	.token-modal-body {
+	.key-modal-body {
 		padding: 16px 20px;
 	}
-	.token-modal-desc {
-		margin: 0 0 12px;
+	.key-modal-desc {
+		margin: 0 0 16px;
 		font-size: 13px;
 		color: var(--text-secondary, #666);
-		line-height: 1.6;
+		line-height: 1.7;
 	}
-	:global(.dark) .token-modal-desc {
+	:global(.dark) .key-modal-desc {
 		color: #aaa;
 	}
-	.token-modal-desc strong {
+	.key-modal-desc strong {
 		color: hsl(var(--theme-hue, 165), 70%, 45%);
 	}
-	.token-input {
+
+	.key-field-label {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--text-color, #1f2937);
+		margin-bottom: 6px;
+		margin-top: 12px;
+	}
+	:global(.dark) .key-field-label {
+		color: #d1d5db;
+	}
+
+	.key-input {
 		width: 100%;
 		padding: 10px 14px;
 		border: 1.5px solid var(--border, #d1d5db);
 		border-radius: 10px;
-		font-size: 13px;
-		font-family: monospace;
+		font-size: 14px;
 		background: var(--bg-color, white);
 		color: var(--text-color, #1f2937);
 		outline: none;
 		transition: border-color 0.2s;
 		box-sizing: border-box;
+		font-family: monospace;
 	}
-	.token-input:focus {
+	.key-input:focus {
 		border-color: hsl(var(--theme-hue, 165), 70%, 50%);
 		box-shadow: 0 0 0 3px hsla(var(--theme-hue, 165), 70%, 50%, 0.1);
 	}
-	:global(.dark) .token-input {
+	:global(.dark) .key-input {
 		background: #0f0f1a;
 		border-color: #374151;
 		color: #e5e7eb;
 	}
-	.token-help {
-		margin-top: 10px;
+
+	.key-file-area {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex-wrap: wrap;
 	}
-	.token-help-link {
+
+	.key-file-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 9px 16px;
+		border-radius: 10px;
+		border: 1.5px dashed hsl(var(--theme-hue, 165), 70%, 50%);
+		background: hsla(var(--theme-hue, 165), 70%, 50%, 0.05);
+		color: hsl(var(--theme-hue, 165), 70%, 45%);
+		font-size: 13px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+	.key-file-btn:hover {
+		background: hsla(var(--theme-hue, 165), 70%, 50%, 0.12);
+	}
+	:global(.dark) .key-file-btn {
+		color: hsl(var(--theme-hue, 165), 70%, 60%);
+		background: hsla(var(--theme-hue, 165), 70%, 50%, 0.1);
+	}
+
+	.key-file-name {
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
-		font-size: 12px;
-		color: hsl(var(--theme-hue, 165), 70%, 45%);
-		text-decoration: none;
+		font-size: 13px;
+		color: #16a34a;
+		font-weight: 500;
 	}
-	.token-help-link:hover {
-		text-decoration: underline;
+	:global(.dark) .key-file-name {
+		color: #4ade80;
 	}
 
-	.token-modal-footer {
+	.key-help {
+		margin-top: 16px;
+		font-size: 12px;
+		color: var(--text-secondary, #666);
+	}
+	:global(.dark) .key-help {
+		color: #999;
+	}
+	.key-help summary {
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-weight: 500;
+		color: hsl(var(--theme-hue, 165), 70%, 45%);
+		user-select: none;
+	}
+	.key-help summary:hover {
+		text-decoration: underline;
+	}
+	.key-help-content {
+		margin-top: 10px;
+		padding: 12px;
+		background: var(--bg-secondary, rgba(0,0,0,0.02));
+		border-radius: 8px;
+		line-height: 1.8;
+	}
+	:global(.dark) .key-help-content {
+		background: rgba(255,255,255,0.04);
+	}
+	.key-help-content ol {
+		margin: 0;
+		padding-left: 18px;
+	}
+	.key-help-content ul {
+		margin: 4px 0;
+		padding-left: 18px;
+	}
+	.key-help-content li {
+		margin-bottom: 4px;
+	}
+
+	.key-clear-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		margin-top: 16px;
+		padding: 6px 12px;
+		border-radius: 8px;
+		border: 1px solid rgba(239, 68, 68, 0.3);
+		background: rgba(239, 68, 68, 0.05);
+		color: #ef4444;
+		font-size: 12px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+	.key-clear-btn:hover {
+		background: rgba(239, 68, 68, 0.1);
+		border-color: #ef4444;
+	}
+	:global(.dark) .key-clear-btn {
+		color: #f87171;
+		border-color: rgba(248, 113, 113, 0.3);
+		background: rgba(248, 113, 113, 0.08);
+	}
+
+	.key-modal-footer {
 		display: flex;
 		justify-content: flex-end;
 		gap: 10px;
 		padding: 14px 20px;
 		border-top: 1px solid var(--border, rgba(0,0,0,0.08));
+		flex-shrink: 0;
 	}
-	:global(.dark) .token-modal-footer {
+	:global(.dark) .key-modal-footer {
 		border-top-color: rgba(255, 255, 255, 0.1);
 	}
-	.token-btn {
+	.key-btn {
 		padding: 8px 18px;
 		border-radius: 10px;
 		font-size: 13px;
@@ -596,28 +760,28 @@
 		display: inline-flex;
 		align-items: center;
 	}
-	.token-btn-cancel {
+	.key-btn-cancel {
 		background: var(--bg-secondary, #f3f4f6);
 		color: var(--text-color, #374151);
 	}
-	.token-btn-cancel:hover {
+	.key-btn-cancel:hover {
 		background: var(--border, #e5e7eb);
 	}
-	:global(.dark) .token-btn-cancel {
+	:global(.dark) .key-btn-cancel {
 		background: #2d2d44;
 		color: #d1d5db;
 	}
-	:global(.dark) .token-btn-cancel:hover {
+	:global(.dark) .key-btn-cancel:hover {
 		background: #3d3d55;
 	}
-	.token-btn-confirm {
+	.key-btn-confirm {
 		background: hsl(var(--theme-hue, 165), 70%, 50%);
 		color: white;
 	}
-	.token-btn-confirm:hover:not(:disabled) {
+	.key-btn-confirm:hover:not(:disabled) {
 		background: hsl(var(--theme-hue, 165), 75%, 45%);
 	}
-	.token-btn-confirm:disabled {
+	.key-btn-confirm:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
 	}

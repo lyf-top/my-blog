@@ -8,6 +8,7 @@
     ensureIconify,
     getRepoFile,
     createRepoFile,
+    authHeaders,
     genId,
     deepClone,
   } from "@/utils/editMode";
@@ -183,10 +184,9 @@
         if (n._deleted) {
           const file = await getRepoFile(filePath, repoConfig);
           if (file && file.sha) {
-            const token = localStorage.getItem("gh_repo_token") || localStorage.getItem("gh_token") || "";
             const resp = await fetch(`https://api.github.com/repos/${repoConfig.owner}/${repoConfig.repo}/contents/${filePath}`, {
               method: "DELETE",
-              headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json", "X-GitHub-Api-Version": "2022-11-28" },
+              headers: { ...(await authHeaders()), "Content-Type": "application/json" },
               body: JSON.stringify({ message: `chore(notebooks): remove ${n.folderName} index`, sha: file.sha, branch: repoConfig.branch }),
             });
             if (!resp.ok) allOk = false;
@@ -212,7 +212,7 @@
           if (sha) {
             const ok = await fetch(`https://api.github.com/repos/${repoConfig.owner}/${repoConfig.repo}/contents/${filePath}`, {
               method: "PUT",
-              headers: { Authorization: `Bearer ${localStorage.getItem("gh_repo_token") || localStorage.getItem("gh_token") || ""}`, Accept: "application/vnd.github+json", "Content-Type": "application/json", "X-GitHub-Api-Version": "2022-11-28" },
+              headers: { ...(await authHeaders()), "Content-Type": "application/json" },
               body: JSON.stringify({ message: `chore(notebooks): update ${folderName}`, content: btoa(unescape(encodeURIComponent(content))), sha, branch: repoConfig.branch }),
             }).then(r => r.ok);
             if (!ok) allOk = false;

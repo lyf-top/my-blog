@@ -9,6 +9,7 @@
     getRepoFile,
     updateRepoFile,
     createRepoFile,
+    authHeaders,
     genId,
     deepClone,
   } from "@/utils/editMode";
@@ -233,15 +234,9 @@
             const filePath = `src/content/life/places/${p.slug}.md`;
             const file = await getRepoFile(filePath, repoConfig);
             if (file && file.sha) {
-              const token = localStorage.getItem("gh_repo_token") || localStorage.getItem("gh_token") || "";
               const resp = await fetch(`https://api.github.com/repos/${repoConfig.owner}/${repoConfig.repo}/contents/${filePath}`, {
                 method: "DELETE",
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  Accept: "application/vnd.github+json",
-                  "Content-Type": "application/json",
-                  "X-GitHub-Api-Version": "2022-11-28",
-                },
+                headers: { ...(await authHeaders()), "Content-Type": "application/json" },
                 body: JSON.stringify({ message: `chore(places): remove ${p.slug}`, sha: file.sha, branch: repoConfig.branch }),
               });
               if (!resp.ok) allOk = false;

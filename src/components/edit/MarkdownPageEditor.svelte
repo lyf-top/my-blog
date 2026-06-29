@@ -4,11 +4,7 @@
 	import EditToast from "./EditToast.svelte";
 	import { marked } from "marked";
 	import {
-		getStoredToken,
-		setStoredToken,
 		hasValidToken,
-		readFileAsText,
-		validateToken,
 		showToast,
 		ensureIconify,
 		getRepoFile,
@@ -88,7 +84,7 @@
 
 	async function handleSave() {
 		if (!hasValidToken()) {
-			showToast("请先导入密钥", "warning");
+			showToast("请先配置 GitHub App 私钥", "warning");
 			return;
 		}
 		if (!content.trim()) {
