@@ -705,19 +705,6 @@
 
 	.edit-wx-feed-item {
 		position: relative;
-		padding: 16px 20px;
-		border-radius: 16px;
-		background: var(--card-bg, white);
-		border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
-		transition: all 0.2s;
-	}
-	:global(.dark) .edit-wx-feed-item {
-		background: rgba(23, 23, 23, 0.8);
-		border-color: rgba(255, 255, 255, 0.08);
-	}
-	.edit-wx-feed-item:hover {
-		border-color: hsla(var(--theme-hue, 165), 70%, 50%, 0.3);
-		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
 	}
 	.edit-wx-feed-item-draft {
 		border-style: dashed;
