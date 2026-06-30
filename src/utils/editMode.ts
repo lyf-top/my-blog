@@ -19,6 +19,10 @@ let cachedInstallationToken: string | null = null;
 let tokenExpiresAt = 0;
 let serverAuthAvailable = false;
 
+export function isServerAuth(): boolean {
+	return serverAuthAvailable;
+}
+
 function strToBuf(str: string): ArrayBuffer {
 	return new TextEncoder().encode(str);
 }

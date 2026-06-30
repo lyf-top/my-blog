@@ -21,6 +21,7 @@
 		submitAllDrafts,
 		onDraftsChanged,
 		checkProxyConfigured,
+		isServerAuth,
 	} from "@/utils/editMode";
 	import { repoConfig } from "@/config/editConfig";
 
@@ -333,92 +334,108 @@
 	{/if}
 
 	<!-- 密钥导入弹窗 -->
-{#if showKeyModal}
-	<div class="modal-overlay" onclick={closeKeyModal}>
-		<div class="modal-card" onclick={(e) => e.stopPropagation()}>
-			<div class="modal-header">
-				<h3>
-					<iconify-icon icon="material-symbols:key-rounded" class="text-lg mr-2"></iconify-icon>
-					GitHub App 私钥认证
-				</h3>
-				<button class="modal-close" onclick={closeKeyModal}>
-					<iconify-icon icon="material-symbols:close-rounded" class="text-xl"></iconify-icon>
-				</button>
-			</div>
-			<div class="modal-body">
-				<p class="modal-desc">
-					导入你的 GitHub App 私钥文件（.pem），即可安全地将更改提交到 GitHub。
-					私钥仅存储在本地浏览器中，不会上传到服务器。
-				</p>
-
-				{#if !repoConfigHasAppId()}
-					<div class="form-group">
-						<label>GitHub App ID</label>
-						<input
-							type="text"
-							bind:value={appIdInput}
-							placeholder="输入 App ID（纯数字）"
-							class="form-input"
-						/>
-					</div>
-				{:else}
-					<div class="form-hint">
-						<iconify-icon icon="material-symbols:info-outline-rounded" class="text-sm mr-1"></iconify-icon>
-						App ID 已从站点配置中读取，无需手动输入。
-					</div>
-				{/if}
-
-				<div class="form-group">
-					<label>私钥文件 (.pem)</label>
-					<div class="file-pick-area">
-						<button class="file-pick-btn" onclick={triggerKeyFilePick} type="button">
-							<iconify-icon icon="material-symbols:upload-file-rounded" class="text-base mr-1"></iconify-icon>
-							选择文件
-						</button>
-						<span class="file-name">
-							{#if selectedFileName}
-								<iconify-icon icon="material-symbols:check-circle-rounded" style="color:#22c55e" class="mr-1"></iconify-icon>
-								{selectedFileName}
-							{:else if getStoredPrivateKey()}
-								<iconify-icon icon="material-symbols:check-circle-rounded" style="color:#22c55e" class="mr-1"></iconify-icon>
-								已保存私钥（可重新选择覆盖）
-							{:else}
-								未选择文件
-							{/if}
-						</span>
-						<input
-							type="file"
-							accept=".pem,application/x-pem-file,text/plain"
-							bind:this={keyFileInputEl}
-							onchange={handleKeyFileSelect}
-							style="display:none"
-						/>
-					</div>
+	{#if showKeyModal}
+		<div class="modal-overlay" onclick={closeKeyModal}>
+			<div class="modal-card" onclick={(e) => e.stopPropagation()}>
+				<div class="modal-header">
+					<h3>
+						<iconify-icon icon="material-symbols:key-rounded" class="text-lg mr-2"></iconify-icon>
+						{#if isServerAuth()}
+							服务端认证
+						{:else}
+							GitHub App 私钥认证
+						{/if}
+					</h3>
+					<button class="modal-close" onclick={closeKeyModal}>
+						<iconify-icon icon="material-symbols:close-rounded" class="text-xl"></iconify-icon>
+					</button>
 				</div>
-
-				{#if authed}
-				<div class="auth-status auth-ok">
-					<iconify-icon icon="material-symbols:check-circle-rounded" class="mr-1"></iconify-icon>
-					当前已认证，可直接提交。
-					<button class="logout-link" onclick={handleLogout}>清除私钥</button>
-				</div>
-				{/if}
-			</div>
-			<div class="modal-footer">
-				<button class="modal-btn modal-btn-cancel" onclick={closeKeyModal}>取消</button>
-				<button class="modal-btn modal-btn-ok" onclick={handleImportKey} disabled={validating}>
-					{#if validating}
-						<iconify-icon icon="material-symbols:progress-activity-rounded" class="text-sm animate-spin mr-1"></iconify-icon>
-						验证中...
+				<div class="modal-body">
+					{#if isServerAuth()}
+						<div class="auth-status auth-ok">
+							<iconify-icon icon="material-symbols:check-circle-rounded" class="mr-1"></iconify-icon>
+							已通过服务端 GitHub App 认证，无需导入私钥。
+						</div>
+						<p class="modal-desc">
+							认证由 Cloudflare Worker 环境变量中的 GH_APP_ID 和 GH_PRIVATE_KEY 自动处理。
+						</p>
 					{:else}
-						<iconify-icon icon="material-symbols:check-rounded" class="text-sm mr-1"></iconify-icon>
-						{authed ? "更新密钥" : "导入并验证"}
+						<p class="modal-desc">
+							导入你的 GitHub App 私钥文件（.pem），即可安全地将更改提交到 GitHub。
+							私钥仅存储在本地浏览器中，不会上传到服务器。
+						</p>
+
+						{#if !repoConfigHasAppId()}
+							<div class="form-group">
+								<label>GitHub App ID</label>
+								<input
+									type="text"
+									bind:value={appIdInput}
+									placeholder="输入 App ID（纯数字）"
+									class="form-input"
+								/>
+							</div>
+						{:else}
+							<div class="form-hint">
+								<iconify-icon icon="material-symbols:info-outline-rounded" class="text-sm mr-1"></iconify-icon>
+								App ID 已从站点配置中读取，无需手动输入。
+							</div>
+						{/if}
+
+						<div class="form-group">
+							<label>私钥文件 (.pem)</label>
+							<div class="file-pick-area">
+								<button class="file-pick-btn" onclick={triggerKeyFilePick} type="button">
+									<iconify-icon icon="material-symbols:upload-file-rounded" class="text-base mr-1"></iconify-icon>
+									选择文件
+								</button>
+								<span class="file-name">
+									{#if selectedFileName}
+										<iconify-icon icon="material-symbols:check-circle-rounded" style="color:#22c55e" class="mr-1"></iconify-icon>
+										{selectedFileName}
+									{:else if getStoredPrivateKey()}
+										<iconify-icon icon="material-symbols:check-circle-rounded" style="color:#22c55e" class="mr-1"></iconify-icon>
+										已保存私钥（可重新选择覆盖）
+									{:else}
+										未选择文件
+									{/if}
+								</span>
+								<input
+									type="file"
+									accept=".pem,application/x-pem-file,text/plain"
+									bind:this={keyFileInputEl}
+									onchange={handleKeyFileSelect}
+									style="display:none"
+								/>
+							</div>
+						</div>
+
+						{#if authed}
+						<div class="auth-status auth-ok">
+							<iconify-icon icon="material-symbols:check-circle-rounded" class="mr-1"></iconify-icon>
+							当前已认证，可直接提交。
+							<button class="logout-link" onclick={handleLogout}>清除私钥</button>
+						</div>
+						{/if}
 					{/if}
-				</button>
+				</div>
+				<div class="modal-footer">
+					<button class="modal-btn modal-btn-cancel" onclick={closeKeyModal}>关闭</button>
+					{#if !isServerAuth()}
+						<button class="modal-btn modal-btn-ok" onclick={handleImportKey} disabled={validating}>
+							{#if validating}
+								<iconify-icon icon="material-symbols:progress-activity-rounded" class="text-sm animate-spin mr-1"></iconify-icon>
+								验证中...
+							{:else}
+								<iconify-icon icon="material-symbols:check-rounded" class="text-sm mr-1"></iconify-icon>
+								{authed ? "更新密钥" : "导入并验证"}
+							{/if}
+						</button>
+					{/if}
+				</div>
 			</div>
 		</div>
-	</div>
-{/if}
+	{/if}
 
 <!-- 批量提交弹窗 -->
 {#if showBatchSubmitModal}
