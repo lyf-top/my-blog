@@ -8,11 +8,8 @@
 		showToast,
 		ensureIconify,
 		getRepoFile,
-		updateRepoFile,
-		saveDraft,
-		getDraft,
-		deleteDraft,
 	} from "@/utils/editMode";
+	import { setupRepoDrafts } from "@/utils/draftHelpers";
 	import { repoConfig } from "@/config/editConfig";
 
 	let {
@@ -30,11 +27,24 @@
 	let editMode = $state(false);
 	let hasToken = $state(false);
 	let saving = $state(false);
-	let hasChanges = $state(false);
 	let content = $state(initialContent);
 	let originalContent = $state(initialContent);
 	let existingSha = $state<string | null>(null);
 	let showPreview = $state(true);
+
+	const drafts = setupRepoDrafts({
+		pageKey: "markdownpage",
+		pageName: pageName,
+		getContent: () => content,
+		setContent: (v) => (content = v),
+		getPath: () => filePath,
+		getSha: () => existingSha,
+		setSha: (v) => (existingSha = v),
+		getOriginalContent: () => originalContent,
+		setOriginalContent: (v) => (originalContent = v),
+		getCommitMsg: (isEdit) => isEdit ? `chore(pages): update "${pageName}" content` : `chore(pages): create "${pageName}" content`,
+	});
+	let hasChanges = $derived(drafts.hasLocalChanges());
 
 	let textareaEl: HTMLTextAreaElement | undefined;
 	let contentDisplayEl: HTMLDivElement | undefined;
@@ -42,23 +52,12 @@
 	onMount(() => {
 		ensureIconify();
 		hasToken = hasValidToken();
-		const draftKey = `md:${filePath}`;
-		const draft = getDraft<any>(draftKey);
-		if (draft?.content) {
-			if (confirm("发现未提交的页面草稿，是否恢复？")) {
-				content = draft.content;
-				hasChanges = true;
-				showToast("草稿已恢复", "success");
-			} else { deleteDraft(draftKey); }
-		}
-		window.addEventListener("blog:batch-submit", handleBatchSubmit);
-		return () => window.removeEventListener("blog:batch-submit", handleBatchSubmit);
+		drafts.restoreFromDrafts();
 	});
 
 	function enterEditMode() {
 		originalContent = content;
 		editMode = true;
-		hasChanges = false;
 		tick().then(() => {
 			textareaEl?.focus();
 		});
@@ -67,14 +66,13 @@
 	function cancelEdit() {
 		content = originalContent;
 		editMode = false;
-		hasChanges = false;
+		drafts.clearDrafts();
 		showToast("已取消编辑", "info");
 	}
 
 	function handleContentChange(e: Event) {
 		const target = e.target as HTMLTextAreaElement;
 		content = target.value;
-		hasChanges = content !== originalContent;
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
@@ -84,7 +82,6 @@
 			const start = textarea.selectionStart;
 			const end = textarea.selectionEnd;
 			content = content.substring(0, start) + "  " + content.substring(end);
-			hasChanges = content !== originalContent;
 			tick().then(() => {
 				textarea.focus();
 				textarea.setSelectionRange(start + 2, start + 2);
@@ -92,60 +89,17 @@
 		}
 		if ((e.ctrlKey || e.metaKey) && e.key === "s") {
 			e.preventDefault();
-			handleSave();
+			handleSubmit();
 		}
 	}
 
 	function handleSaveDraft() {
-		const draftKey = `md:${filePath}`;
-		saveDraft(draftKey, pageName, { content }, `${pageName} 页面更改`);
-		showToast(`${pageName}草稿已保存`, "success");
-	}
-	async function handleBatchSubmit() {
-		const draftKey = `md:${filePath}`;
-		const draft = getDraft<any>(draftKey);
-		if (draft?.content) { content = draft.content; await handleSave(); if (!saving) deleteDraft(draftKey); }
+		drafts.saveToDrafts();
 	}
 
-	async function handleSave() {
-		if (!hasValidToken()) {
-			showToast("请先配置 GitHub App 私钥", "warning");
-			return;
-		}
-		if (!content.trim()) {
-			showToast("内容不能为空", "warning");
-			return;
-		}
+	async function handleSubmit() {
 		saving = true;
-		try {
-			if (!existingSha) {
-				const file = await getRepoFile(filePath, repoConfig);
-				if (file) {
-					existingSha = file.sha;
-				}
-			}
-			const commitMsg = `chore(pages): update "${pageName}" content`;
-			let ok = false;
-			if (existingSha) {
-				ok = await updateRepoFile(filePath, content, existingSha, commitMsg, repoConfig);
-			}
-			if (ok) {
-				originalContent = content;
-				hasChanges = false;
-				showToast("保存成功！刷新页面查看效果", "success");
-				const file = await getRepoFile(filePath, repoConfig);
-				if (file) {
-					existingSha = file.sha;
-				}
-			} else {
-				showToast("保存失败，请检查Token权限（需要repo权限）", "error");
-			}
-		} catch (err) {
-			showToast("保存出错，请检查网络连接", "error");
-			console.error(err);
-		} finally {
-			saving = false;
-		}
+		try { await drafts.submitDrafts(); } finally { saving = false; }
 	}
 
 	function handleTokenReady() {
@@ -159,7 +113,6 @@
 		const selected = content.substring(start, end);
 		const newText = before + selected + after;
 		content = content.substring(0, start) + newText + content.substring(end);
-		hasChanges = content !== originalContent;
 		tick().then(() => {
 			textareaEl?.focus();
 			textareaEl?.setSelectionRange(start + before.length, start + before.length + selected.length);
@@ -182,6 +135,7 @@
 	<div class="md-toolbar-slot">
 		<EditToolbar
 			pageName={pageName}
+			pageKey="markdownpage"
 			saving={saving}
 			hasChanges={hasChanges}
 			showAddButton={false}
@@ -194,8 +148,8 @@
 				}
 			}}
 			on:cancel={cancelEdit}
-			on:save={handleSave}
 			on:saveDraft={() => handleSaveDraft()}
+			on:submit={() => handleSubmit()}
 			on:tokenReady={handleTokenReady}
 		/>
 	</div>

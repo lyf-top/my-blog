@@ -171,7 +171,14 @@
 	}
 
 	function handleSaveDraft() {
-		saveDraft("gallery", "相册", { albums }, `共 ${albums.length} 个相册`);
+		deleteDraft("gallery");
+		saveDraft({
+			pageKey: "gallery",
+			pageName: "相册",
+			description: `更新相册 共 ${albums.length} 个相册`,
+			operation: "update",
+			payload: { albums },
+		});
 		showToast("相册草稿已保存", "success");
 	}
 

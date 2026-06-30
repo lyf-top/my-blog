@@ -1,98 +1,305 @@
 /**
- * 在线编辑模式 - 核心工具库
- * 使用服务端代理进行 GitHub API 认证：
- * 1. 私钥和 App ID 存储在服务器环境变量（Vercel/Cloudflare）
- * 2. 所有 GitHub API 请求通过 /api/github 代理转发
- * 3. 代理服务器自动处理 JWT 签名和安装令牌刷新
+ * 鍦ㄧ嚎缂栬緫妯″紡 - 鏍稿績宸ュ叿搴�
+ * 鍓嶇�瀵煎叆 GitHub App 绉侀挜璁よ瘉锛�
+ * 1. 鐢ㄦ埛鍦ㄦ祻瑙堝櫒瀵煎叆 .pem 绉侀挜鏂囦欢骞惰緭鍏� App ID
+ * 2. 娴忚�鍣ㄧ�浣跨敤 Web Crypto API 杩涜� JWT 绛惧悕
+ * 3. 閫氳繃 /api/github 浠ｇ悊杞�彂璇锋眰锛堣В鍐矯ORS闂��锛�
+ * 4. 绉侀挜浠呬繚瀛樺湪娴忚�鍣ㄥ唴瀛�/localStorage涓�紝涓嶄笂浼犳湇鍔″櫒
  */
 
 import { repoConfig } from "@/config/editConfig";
 
 const PROXY_URL = "/api/github";
+const STORAGE_APP_ID = "gh_app_id";
+const STORAGE_PRIVATE_KEY = "gh_private_key";
+const STORAGE_DRAFTS = "gh_drafts";
+const STORAGE_DRAFT_META = "gh_draft_meta";
 
-let proxyConfigured: boolean | null = null;
+let cachedInstallationToken: string | null = null;
+let tokenExpiresAt = 0;
 
-export async function checkProxyConfigured(): Promise<boolean> {
-	if (proxyConfigured !== null) return proxyConfigured;
-	try {
-		const resp = await fetch(PROXY_URL, { method: "GET" });
-		const data = await resp.json();
-		proxyConfigured = data.configured === true;
-		return proxyConfigured;
-	} catch {
-		proxyConfigured = false;
-		return false;
+function strToBuf(str: string): ArrayBuffer {
+	return new TextEncoder().encode(str);
+}
+
+function b64urlEncode(buf: ArrayBuffer): string {
+	const bytes = new Uint8Array(buf);
+	let binary = "";
+	for (let i = 0; i < bytes.byteLength; i++) {
+		binary += String.fromCharCode(bytes[i]);
 	}
+	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export function invalidateProxyCheck(): void {
-	proxyConfigured = null;
+function b64urlDecode(str: string): ArrayBuffer {
+	const b64 = str.replace(/-/g, "+").replace(/_/g, "/");
+	const pad = b64.length % 4;
+	const padded = pad ? b64 + "=".repeat(4 - pad) : b64;
+	const binary = atob(padded);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) {
+		bytes[i] = binary.charCodeAt(i);
+	}
+	return bytes.buffer;
 }
 
-// ============ 兼容旧的凭据管理 API（不再需要本地存储） ============
+function pkcs1ToPkcs8(pkcs1Der: ArrayBuffer): ArrayBuffer {
+	const bytes = new Uint8Array(pkcs1Der);
+	const rsaOid = new Uint8Array([0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00]);
+	const algorithmIdentifier = new Uint8Array(2 + rsaOid.length);
+	algorithmIdentifier[0] = 0x30;
+	algorithmIdentifier[1] = rsaOid.length;
+	algorithmIdentifier.set(rsaOid, 2);
 
-export function getStoredAppId(): string {
-	return "";
+	function wrapDer(tag: number, data: Uint8Array): Uint8Array {
+		const len = data.length;
+		let lenBytes: Uint8Array;
+		if (len < 128) {
+			lenBytes = new Uint8Array([len]);
+		} else if (len < 256) {
+			lenBytes = new Uint8Array([0x81, len]);
+		} else {
+			lenBytes = new Uint8Array([0x82, (len >> 8) & 0xff, len & 0xff]);
+		}
+		const result = new Uint8Array(1 + lenBytes.length + len);
+		result[0] = tag;
+		result.set(lenBytes, 1);
+		result.set(data, 1 + lenBytes.length);
+		return result;
+	}
+
+	const wrappedKey = wrapDer(0x04, bytes);
+	const inner = new Uint8Array(algorithmIdentifier.length + wrappedKey.length);
+	inner.set(algorithmIdentifier, 0);
+	inner.set(wrappedKey, algorithmIdentifier.length);
+	const pkcs8 = wrapDer(0x30, inner);
+	return pkcs8.buffer;
 }
 
-export function setStoredAppId(_appId: string): void {
-	// no-op: 凭据已在服务端配置
+function pemToDer(pem: string): ArrayBuffer {
+	const cleaned = pem
+		.replace(/-----BEGIN (RSA )?PRIVATE KEY-----/, "")
+		.replace(/-----END (RSA )?PRIVATE KEY-----/, "")
+		.replace(/\s+/g, "");
+	return b64urlDecode(cleaned);
 }
 
-export function getStoredPrivateKey(): string {
-	return "";
+async function importPrivateKey(pem: string): Promise<CryptoKey> {
+	let der = pemToDer(pem);
+	const header = new Uint8Array(der, 0, 2);
+	let keyData: ArrayBuffer;
+	if (header[0] === 0x30 && header[1] === 0x82) {
+		const versionOctet = new Uint8Array(der, 3, 1)[0];
+		if (versionOctet === 0x01 || versionOctet === 0x00) {
+			const seqLen = (new Uint8Array(der, 1, 2)[0] << 8) | new Uint8Array(der, 2, 2)[0];
+			const nextByte = new Uint8Array(der, 4, 1)[0];
+			if (nextByte === 0x02) {
+				keyData = pkcs1ToPkcs8(der);
+			} else {
+				keyData = der;
+			}
+		} else {
+			keyData = der;
+		}
+	} else {
+		keyData = der;
+	}
+	return crypto.subtle.importKey(
+		"pkcs8",
+		keyData,
+		{ name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+		false,
+		["sign"],
+	);
 }
 
-export function setStoredPrivateKey(_pem: string): void {
-	// no-op: 凭据已在服务端配置
+async function signJwt(appId: string, privateKeyPem: string): Promise<string> {
+	const now = Math.floor(Date.now() / 1000);
+	const header = { alg: "RS256", typ: "JWT" };
+	const payload = { iat: now - 60, exp: now + 8 * 60, iss: appId };
+	const enc = (obj: unknown) => b64urlEncode(strToBuf(JSON.stringify(obj)));
+	const signingInput = `${enc(header)}.${enc(payload)}`;
+	const key = await importPrivateKey(privateKeyPem);
+	const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, strToBuf(signingInput));
+	return `${signingInput}.${b64urlEncode(signature)}`;
 }
 
-export function clearStoredCredentials(): void {
-	invalidateProxyCheck();
+async function rawProxy(
+	method: string,
+	apiPath: string,
+	body: unknown,
+	headers: Record<string, string>,
+): Promise<Response> {
+	return fetch(PROXY_URL, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ path: apiPath, method, headers, body }),
+	});
 }
 
-export function hasValidCredentials(): boolean {
-	return proxyConfigured === true || !!getClientKey();
-}
-
-export function hasValidToken(): boolean {
-	return proxyConfigured === true || !!getClientKey();
-}
-
-export function getStoredToken(): string {
-	return "";
-}
-
-export function setStoredToken(_token: string): void {
-	// no-op
-}
-
-export function clearStoredToken(): void {
-	invalidateProxyCheck();
-}
-
-export async function validateCredentials(_appId?: string, _pem?: string): Promise<{ ok: boolean; error?: string }> {
-	const ok = await checkProxyConfigured();
-	if (ok) return { ok: true };
+async function getInstallationToken(jwt: string): Promise<{ token: string; expiresAt: number }> {
+	const authHeaders = {
+		Authorization: `Bearer ${jwt}`,
+		Accept: "application/vnd.github+json",
+		"X-GitHub-Api-Version": "2022-11-28",
+	};
+	const resp = await rawProxy("GET", "app/installations", undefined, authHeaders);
+	if (!resp.ok) {
+		const text = await resp.text().catch(() => "");
+		throw new Error(`鑾峰彇 Installation 鍒楄〃澶辫触 (${resp.status}): ${text}`);
+	}
+	const installations = await resp.json();
+	let installationId: number | null = null;
+	const ghUser = repoConfig.owner;
+	const ghRepo = repoConfig.repo;
+	for (const inst of installations) {
+		if (inst.account && (inst.account.login === ghUser)) {
+			installationId = inst.id;
+			break;
+		}
+	}
+	if (!installationId && Array.isArray(installations) && installations.length > 0) {
+		installationId = installations[0].id;
+	}
+	if (!installationId) {
+		const resp2 = await rawProxy(
+			"GET",
+			`repos/${ghUser}/${ghRepo}/installation`,
+			undefined,
+			authHeaders,
+		);
+		if (resp2.ok) {
+			const data = await resp2.json();
+			installationId = data.id;
+		}
+	}
+	if (!installationId) {
+		throw new Error("鏈�壘鍒� GitHub App Installation锛岃�纭�� App 宸插畨瑁呭埌鐩�爣浠撳簱");
+	}
+	const tokenResp = await rawProxy(
+		"POST",
+		`app/installations/${installationId}/access_tokens`,
+		{},
+		authHeaders,
+	);
+	if (!tokenResp.ok) {
+		const text = await tokenResp.text().catch(() => "");
+		throw new Error(`鑾峰彇 Installation Token 澶辫触 (${tokenResp.status}): ${text}`);
+	}
+	const data = await tokenResp.json();
 	return {
-		ok: false,
-		error: "后端 GitHub 代理未配置，请在部署平台设置 GH_APP_ID 和 GH_PRIVATE_KEY 环境变量",
+		token: data.token,
+		expiresAt: new Date(data.expires_at).getTime() - 60_000,
 	};
 }
 
-// ============ 代理请求封装 ============
+export async function getAuthToken(): Promise<string | null> {
+	const appId = getStoredAppId();
+	const privateKey = getStoredPrivateKey();
+	if (!appId || !privateKey) return null;
+	const now = Date.now();
+	if (cachedInstallationToken && now < tokenExpiresAt) {
+		return cachedInstallationToken;
+	}
+	try {
+		const jwt = await signJwt(appId, privateKey);
+		const { token, expiresAt } = await getInstallationToken(jwt);
+		cachedInstallationToken = token;
+		tokenExpiresAt = expiresAt;
+		return token;
+	} catch (e) {
+		console.error("鑾峰彇 GitHub Token 澶辫触:", e);
+		clearStoredCredentials();
+		return null;
+	}
+}
+
+export function invalidateToken(): void {
+	cachedInstallationToken = null;
+	tokenExpiresAt = 0;
+}
+
+// ============ 鍑�嵁绠＄悊 ============
+
+export function getStoredAppId(): string {
+	try {
+		const configId = repoConfig.appId;
+		if (configId) return configId;
+		return localStorage.getItem(STORAGE_APP_ID) || "";
+	} catch {
+		return repoConfig.appId || "";
+	}
+}
+
+export function setStoredAppId(appId: string): void {
+	try {
+		localStorage.setItem(STORAGE_APP_ID, appId);
+	} catch {}
+}
+
+export function getStoredPrivateKey(): string {
+	try {
+		return localStorage.getItem(STORAGE_PRIVATE_KEY) || "";
+	} catch {
+		return "";
+	}
+}
+
+export function setStoredPrivateKey(pem: string): void {
+	try {
+		localStorage.setItem(STORAGE_PRIVATE_KEY, pem);
+	} catch {}
+}
+
+export function clearStoredCredentials(): void {
+	try {
+		localStorage.removeItem(STORAGE_APP_ID);
+		localStorage.removeItem(STORAGE_PRIVATE_KEY);
+	} catch {}
+	cachedInstallationToken = null;
+	tokenExpiresAt = 0;
+}
+
+export function hasValidCredentials(): boolean {
+	return !!getStoredAppId() && !!getStoredPrivateKey();
+}
+
+export function hasValidToken(): boolean {
+	return cachedInstallationToken !== null && Date.now() < tokenExpiresAt;
+}
+
+export async function validateCredentials(appId?: string, pem?: string): Promise<{ ok: boolean; error?: string }> {
+	const useAppId = appId || getStoredAppId();
+	const usePem = pem || getStoredPrivateKey();
+	if (!useAppId || !usePem) {
+		return { ok: false, error: "璇峰厛瀵煎叆 GitHub App 绉侀挜鏂囦欢骞跺～鍐� App ID" };
+	}
+	try {
+		const jwt = await signJwt(useAppId, usePem);
+		const { token } = await getInstallationToken(jwt);
+		cachedInstallationToken = token;
+		return { ok: true };
+	} catch (e: any) {
+		return { ok: false, error: e?.message || "楠岃瘉澶辫触锛岃�妫€鏌� App ID 鍜岀�閽ユ槸鍚︽�纭�" };
+	}
+}
+
+// ============ 浠ｇ悊璇锋眰灏佽�锛圕ORS閫忎紶锛屽甫auth header锛� ============
 
 async function proxyRequest(
 	method: string,
 	apiPath: string,
 	body?: unknown,
+	extraHeaders?: Record<string, string>,
 ): Promise<Response> {
-	const resp = await fetch(PROXY_URL, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ path: apiPath, method, body }),
-	});
-	return resp;
+	const token = await getAuthToken();
+	const headers: Record<string, string> = {
+		Accept: "application/vnd.github+json",
+		"X-GitHub-Api-Version": "2022-11-28",
+	};
+	if (token) headers.Authorization = `Bearer ${token}`;
+	if (extraHeaders) Object.assign(headers, extraHeaders);
+	return rawProxy(method, apiPath, body, headers);
 }
 
 export async function githubApi(
@@ -100,13 +307,35 @@ export async function githubApi(
 	apiPath: string,
 	body?: unknown,
 ): Promise<Response> {
-	if (getClientKey()) {
-		return clientGithubApi(method, apiPath, body);
-	}
 	return proxyRequest(method, apiPath, body);
 }
 
-// ============ 文件读取工具 ============
+// ============ 鍏煎�鏃�PI ============
+
+export function getStoredToken(): string {
+	return cachedInstallationToken || "";
+}
+
+export function setStoredToken(_token: string): void {}
+
+export function clearStoredToken(): void {
+	invalidateToken();
+}
+
+export async function validateToken(_token?: string): Promise<boolean> {
+	const result = await validateCredentials();
+	return result.ok;
+}
+
+export async function checkProxyConfigured(): Promise<boolean> {
+	return hasValidCredentials();
+}
+
+export function invalidateProxyCheck(): void {
+	invalidateToken();
+}
+
+// ============ 鏂囦欢璇诲彇宸ュ叿 ============
 
 export function readFileAsText(file: File): Promise<string> {
 	return new Promise((resolve, reject) => {
@@ -117,7 +346,7 @@ export function readFileAsText(file: File): Promise<string> {
 	});
 }
 
-// ============ Gist API 封装 ============
+// ============ Gist API 灏佽� ============
 
 export async function readGistFile(
 	gistId: string,
@@ -143,10 +372,10 @@ export async function writeGistFile(
 		const resp = await proxyRequest("PATCH", `gists/${gistId}`, {
 			files: { [fileName]: { content } },
 		});
-		if (!resp.ok) invalidateProxyCheck();
+		if (!resp.ok) invalidateToken();
 		return resp.ok;
 	} catch {
-		invalidateProxyCheck();
+		invalidateToken();
 		return false;
 	}
 }
@@ -170,7 +399,7 @@ export async function createGist(
 	}
 }
 
-// ============ GitHub Repo 文件操作 ============
+// ============ GitHub Repo 鏂囦欢鎿嶄綔 ============
 
 export interface RepoConfig {
 	owner: string;
@@ -212,10 +441,10 @@ export async function updateRepoFile(
 			sha,
 			branch: config.branch,
 		});
-		if (!resp.ok) invalidateProxyCheck();
+		if (!resp.ok) invalidateToken();
 		return resp.ok;
 	} catch {
-		invalidateProxyCheck();
+		invalidateToken();
 		return false;
 	}
 }
@@ -233,31 +462,10 @@ export async function createRepoFile(
 			content: encodedContent,
 			branch: config.branch,
 		});
-		if (!resp.ok) invalidateProxyCheck();
+		if (!resp.ok) invalidateToken();
 		return resp.ok;
 	} catch {
-		invalidateProxyCheck();
-		return false;
-	}
-}
-
-/** 创建仓库文件，内容已经是 base64 编码（用于二进制文件如图片） */
-export async function createRepoFileRawBase64(
-	path: string,
-	base64Content: string,
-	message: string,
-	config: RepoConfig = repoConfig,
-): Promise<boolean> {
-	try {
-		const resp = await proxyRequest("PUT", repoPath(config, path), {
-			message,
-			content: base64Content,
-			branch: config.branch,
-		});
-		if (!resp.ok) invalidateProxyCheck();
-		return resp.ok;
-	} catch {
-		invalidateProxyCheck();
+		invalidateToken();
 		return false;
 	}
 }
@@ -274,11 +482,48 @@ export async function deleteRepoFile(
 			sha,
 			branch: config.branch,
 		});
-		if (!resp.ok) invalidateProxyCheck();
+		if (!resp.ok) invalidateToken();
 		return resp.ok;
 	} catch {
-		invalidateProxyCheck();
+		invalidateToken();
 		return false;
+	}
+}
+
+// ============ 鍥剧墖涓婁紶锛圔ase64 閫氳繃 Contents API锛� ============
+
+export async function uploadImageToRepo(
+	imagePath: string,
+	base64Content: string,
+	message: string,
+	config: RepoConfig = repoConfig,
+): Promise<string | null> {
+	try {
+		const existing = await getRepoFile(imagePath, config);
+		let resp;
+		if (existing) {
+			resp = await proxyRequest("PUT", repoPath(config, imagePath), {
+				message,
+				content: base64Content,
+				sha: existing.sha,
+				branch: config.branch,
+			});
+		} else {
+			resp = await proxyRequest("PUT", repoPath(config, imagePath), {
+				message,
+				content: base64Content,
+				branch: config.branch,
+			});
+		}
+		if (!resp.ok) {
+			invalidateToken();
+			const text = await resp.text().catch(() => "");
+			throw new Error(`涓婁紶澶辫触 (${resp.status}): ${text}`);
+		}
+		return `https://raw.githubusercontent.com/${config.owner}/${config.repo}/${config.branch}/${imagePath}`;
+	} catch (e) {
+		console.error("鍥剧墖涓婁紶澶辫触:", e);
+		return null;
 	}
 }
 
@@ -324,54 +569,34 @@ export async function getRepoFileBase64(
 		const resp = await proxyRequest("GET", `${repoPath(config, path)}?ref=${config.branch}`);
 		if (!resp.ok) return null;
 		const data = await resp.json();
-		return data.content?.replace(/\n/g, "") || null;
+		return data.content.replace(/\n/g, "");
 	} catch {
 		return null;
 	}
 }
 
-// ============ 图片上传（Base64 通过 Contents API） ============
-
-export async function uploadImageToRepo(
-	imagePath: string,
+/** 创建仓库文件，内容已经是 base64 编码（用于二进制文件如图片） */
+export async function createRepoFileRawBase64(
+	path: string,
 	base64Content: string,
 	message: string,
 	config: RepoConfig = repoConfig,
-): Promise<string | null> {
+): Promise<boolean> {
 	try {
-		const existing = await getRepoFile(imagePath, config);
-		let resp;
-		if (existing) {
-			resp = await proxyRequest("PUT", repoPath(config, imagePath), {
-				message,
-				content: base64Content,
-				sha: existing.sha,
-				branch: config.branch,
-			});
-		} else {
-			resp = await proxyRequest("PUT", repoPath(config, imagePath), {
-				message,
-				content: base64Content,
-				branch: config.branch,
-			});
-		}
-		if (!resp.ok) {
-			invalidateProxyCheck();
-			const text = await resp.text().catch(() => "");
-			throw new Error(`上传失败 (${resp.status}): ${text}`);
-		}
-		return `https://raw.githubusercontent.com/${config.owner}/${config.repo}/${config.branch}/${imagePath}`;
-	} catch (e) {
-		console.error("图片上传失败:", e);
-		return null;
+		const resp = await proxyRequest("PUT", repoPath(config, path), {
+			message,
+			content: base64Content,
+			branch: config.branch,
+		});
+		if (!resp.ok) invalidateToken();
+		return resp.ok;
+	} catch {
+		invalidateToken();
+		return false;
 	}
 }
 
-export async function validateToken(_token?: string): Promise<boolean> {
-	return checkProxyConfigured();
-}
-
-// ============ Toast 通知 ============
+// ============ Toast 閫氱煡 ============
 
 export function showToast(
 	message: string,
@@ -384,7 +609,7 @@ export function showToast(
 	window.dispatchEvent(event);
 }
 
-// ============ 深拷贝工具 ============
+// ============ 娣辨嫹璐濆伐鍏� ============
 
 export function deepClone<T>(obj: T): T {
 	return JSON.parse(JSON.stringify(obj));
@@ -404,278 +629,149 @@ export function ensureIconify(): void {
 	document.head.appendChild(script);
 }
 
-// ============ 草稿管理（localStorage） ============
+// ============ 鑽夌ǹ鏆傚瓨涓庢壒閲忔彁浜� ============
 
-const DRAFT_PREFIX = "blog-draft:";
-const DRAFT_INDEX_KEY = "blog-draft-index";
-
-export interface DraftMeta {
+export interface DraftChange {
+	id: string;
+	pageKey: string;
 	pageName: string;
-	key: string;
+	description: string;
+	operation: "create" | "update" | "delete";
 	timestamp: number;
-	preview?: string;
+	payload: Record<string, any>;
 }
 
-export function saveDraft(key: string, pageName: string, data: unknown, preview?: string): void {
-	const draftKey = `${DRAFT_PREFIX}${key}`;
-	localStorage.setItem(draftKey, JSON.stringify(data));
-	const index = getDraftIndex();
-	const existing = index.findIndex((d) => d.key === key);
-	const meta: DraftMeta = { pageName, key, timestamp: Date.now(), preview };
-	if (existing >= 0) index[existing] = meta;
-	else index.push(meta);
-	localStorage.setItem(DRAFT_INDEX_KEY, JSON.stringify(index));
+interface DraftStore {
+	changes: DraftChange[];
 }
 
-export function getDraft<T = unknown>(key: string): T | null {
+function readDraftStore(): DraftStore {
 	try {
-		const raw = localStorage.getItem(`${DRAFT_PREFIX}${key}`);
-		return raw ? (JSON.parse(raw) as T) : null;
+		const raw = localStorage.getItem(STORAGE_DRAFTS);
+		if (!raw) return { changes: [] };
+		return JSON.parse(raw);
 	} catch {
-		return null;
+		return { changes: [] };
 	}
 }
 
-export function deleteDraft(key: string): void {
-	localStorage.removeItem(`${DRAFT_PREFIX}${key}`);
-	const index = getDraftIndex();
-	const filtered = index.filter((d) => d.key !== key);
-	localStorage.setItem(DRAFT_INDEX_KEY, JSON.stringify(filtered));
+function writeDraftStore(store: DraftStore): void {
+	try {
+		localStorage.setItem(STORAGE_DRAFTS, JSON.stringify(store));
+		dispatchDraftsChanged();
+	} catch {}
+}
+
+function dispatchDraftsChanged(): void {
+	if (typeof window === "undefined") return;
+	const evt = new CustomEvent("edit-mode:drafts-changed", {
+		detail: { count: getDraftCount() },
+	});
+	window.dispatchEvent(evt);
+}
+
+export function getDraftCount(): number {
+	return readDraftStore().changes.length;
+}
+
+export function getAllDrafts(): DraftChange[] {
+	return readDraftStore().changes;
+}
+
+export function getDraftsByPage(pageKey: string): DraftChange[] {
+	return readDraftStore().changes.filter(c => c.pageKey === pageKey);
+}
+
+export function saveDraft(change: Omit<DraftChange, "id" | "timestamp">): DraftChange {
+	const store = readDraftStore();
+	const newChange: DraftChange = {
+		...change,
+		id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+		timestamp: Date.now(),
+	};
+	store.changes.push(newChange);
+	writeDraftStore(store);
+	return newChange;
+}
+
+export function removeDraft(id: string): void {
+	const store = readDraftStore();
+	store.changes = store.changes.filter(c => c.id !== id);
+	writeDraftStore(store);
 }
 
 export function clearAllDrafts(): void {
-	const index = getDraftIndex();
-	for (const d of index) {
-		localStorage.removeItem(`${DRAFT_PREFIX}${d.key}`);
+	writeDraftStore({ changes: [] });
+}
+
+export function clearDraftsByPage(pageKey: string): void {
+	const store = readDraftStore();
+	store.changes = store.changes.filter(c => c.pageKey !== pageKey);
+	writeDraftStore(store);
+}
+
+/** 获取指定页面的最新草稿数据（简化 API） */
+export function getDraft<T = any>(pageKey: string): T | null {
+	const drafts = getDraftsByPage(pageKey);
+	if (drafts.length === 0) return null;
+	return drafts[drafts.length - 1].payload as T;
+}
+
+/** 删除指定页面的所有草稿（简化 API） */
+export function deleteDraft(pageKey: string): void {
+	clearDraftsByPage(pageKey);
+}
+
+type SubmitHandler = (change: DraftChange, token: string) => Promise<boolean>;
+
+const submitHandlers = new Map<string, SubmitHandler>();
+
+export function registerSubmitHandler(pageKey: string, handler: SubmitHandler): void {
+	submitHandlers.set(pageKey, handler);
+}
+
+export async function submitAllDrafts(): Promise<{ success: number; failed: number; errors: string[] }> {
+	const token = await getAuthToken();
+	if (!token) {
+		return { success: 0, failed: 0, errors: ["鏈��璇侊紝璇峰厛瀵煎叆绉侀挜"] };
 	}
-	localStorage.setItem(DRAFT_INDEX_KEY, JSON.stringify([]));
-}
-
-export function getDraftIndex(): DraftMeta[] {
-	try {
-		const raw = localStorage.getItem(DRAFT_INDEX_KEY);
-		return raw ? (JSON.parse(raw) as DraftMeta[]) : [];
-	} catch {
-		return [];
-	}
-}
-
-export function hasAnyDrafts(): boolean {
-	return getDraftIndex().length > 0;
-}
-
-// 监听 storage 变化，保持草稿状态同步
-let _draftListenerAdded = false;
-export function onDraftsChanged(cb: () => void): void {
-	if (typeof window === "undefined" || _draftListenerAdded) return;
-	_draftListenerAdded = true;
-	window.addEventListener("storage", (e) => {
-		if (e.key?.startsWith(DRAFT_PREFIX) || e.key === DRAFT_INDEX_KEY) cb();
-	});
-}
-
-// ============ 客户端密钥管理（.pem 导入） ============
-
-let _clientPem: string | null = null;
-let _clientAppId: string | null = null;
-
-export function storeClientKey(pem: string): void {
-	_clientPem = pem;
-	try { sessionStorage.setItem("blog-pem-key", pem); } catch {}
-}
-
-export function getClientKey(): string | null {
-	if (_clientPem) return _clientPem;
-	try {
-		const stored = sessionStorage.getItem("blog-pem-key");
-		if (stored) { _clientPem = stored; return stored; }
-	} catch {}
-	return null;
-}
-
-export function getClientAppId(): string {
-	if (_clientAppId) return _clientAppId;
-	try {
-		const stored = sessionStorage.getItem("blog-app-id");
-		if (stored) { _clientAppId = stored; return stored; }
-	} catch {}
-	const envId = (import.meta as any).env?.PUBLIC_GITHUB_APP_ID;
-	if (envId) { _clientAppId = envId; return envId; }
-	return "";
-}
-
-export function storeClientAppId(id: string): void {
-	_clientAppId = id;
-	try { sessionStorage.setItem("blog-app-id", id); } catch {}
-}
-
-export function hasClientAuth(): boolean {
-	return !!getClientKey() && !!getClientAppId();
-}
-
-export async function importPemFile(file: File): Promise<boolean> {
-	try {
-		const text = await readFileAsText(file);
-		if (!text.includes("PRIVATE KEY")) {
-			showToast("无效的私钥文件，请选择 .pem 格式文件", "error");
-			return false;
+	const drafts = getAllDrafts();
+	const success: string[] = [];
+	const errors: string[] = [];
+	const toRemove: string[] = [];
+	for (const draft of drafts) {
+		const handler = submitHandlers.get(draft.pageKey);
+		if (!handler) {
+			errors.push(`${draft.pageName}: 鏆備笉鏀�寔鎻愪氦`);
+			continue;
 		}
-		storeClientKey(text);
-		const appId = getClientAppId();
-		if (appId) {
-			showToast(`密钥已导入，App ID: ${appId}`, "success");
-		} else {
-			showToast("密钥已导入，但未找到 PUBLIC_GITHUB_APP_ID 环境变量", "warning");
-		}
-		return true;
-	} catch {
-		showToast("读取密钥文件失败", "error");
-		return false;
-	}
-}
-
-// ============ 客户端 GitHub API（浏览器直接调用） ============
-
-let _clientInstallToken: string | null = null;
-let _clientTokenExpiry = 0;
-
-function _b64url(buf: ArrayBuffer | Uint8Array): string {
-	const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-	let bin = "";
-	for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-	return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function _b64ToBuf(b64: string): Uint8Array {
-	const bin = atob(b64);
-	const bytes = new Uint8Array(bin.length);
-	for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-	return bytes;
-}
-
-function _derLen(len: number): Uint8Array {
-	if (len < 128) return new Uint8Array([len]);
-	const bytes: number[] = [];
-	let temp = len;
-	while (temp > 0) { bytes.unshift(temp & 0xff); temp >>= 8; }
-	return new Uint8Array([0x80 | bytes.length, ...bytes]);
-}
-
-function _concatBufs(...arrays: Uint8Array[]): Uint8Array {
-	let total = 0;
-	for (const a of arrays) total += a.length;
-	const result = new Uint8Array(total);
-	let offset = 0;
-	for (const a of arrays) { result.set(a, offset); offset += a.length; }
-	return result;
-}
-
-function _derSeq(...parts: Uint8Array[]): Uint8Array {
-	const body = _concatBufs(...parts);
-	return _concatBufs(new Uint8Array([0x30]), _derLen(body.length), body);
-}
-
-function _derInt(val: number): Uint8Array {
-	const bytes: number[] = [];
-	let v = val;
-	if (v === 0) bytes.push(0);
-	else { while (v > 0) { bytes.unshift(v & 0xff); v >>= 8; } if (bytes[0] & 0x80) bytes.unshift(0); }
-	return _concatBufs(new Uint8Array([0x02]), _derLen(bytes.length), new Uint8Array(bytes));
-}
-
-function _derOctetStr(data: Uint8Array): Uint8Array {
-	return _concatBufs(new Uint8Array([0x04]), _derLen(data.length), data);
-}
-
-function _derOid(oidStr: string): Uint8Array {
-	const parts = oidStr.split(".").map(Number);
-	const bytes = [40 * parts[0] + parts[1]];
-	for (let i = 2; i < parts.length; i++) {
-		let v = parts[i];
-		if (v < 128) bytes.push(v);
-		else {
-			const enc: number[] = [];
-			enc.unshift(v & 0x7f); v >>= 7;
-			while (v > 0) { enc.unshift(0x80 | (v & 0x7f)); v >>= 7; }
-			bytes.push(...enc);
+		try {
+			const ok = await handler(draft, token);
+			if (ok) {
+				success.push(draft.id);
+				toRemove.push(draft.id);
+			} else {
+				errors.push(`${draft.description}: 鎻愪氦澶辫触`);
+			}
+		} catch (e: any) {
+			errors.push(`${draft.description}: ${e?.message || "鏈�煡閿欒�"}`);
 		}
 	}
-	return _concatBufs(new Uint8Array([0x06]), _derLen(bytes.length), new Uint8Array(bytes));
-}
-
-function _pkcs1ToPkcs8(pkcs1Der: Uint8Array): Uint8Array {
-	const algId = _derSeq(_derOid("1.2.840.113549.1.1.1"), new Uint8Array([0x05, 0x00]));
-	return _derSeq(_derInt(0), algId, _derOctetStr(pkcs1Der));
-}
-
-function _pemToDer(pem: string): Uint8Array {
-	const isPkcs1 = pem.includes("BEGIN RSA PRIVATE KEY");
-	const base64 = pem.replace(/-----BEGIN [A-Z ]+PRIVATE KEY-----/, "")
-		.replace(/-----END [A-Z ]+PRIVATE KEY-----/, "").replace(/\s+/g, "");
-	const der = _b64ToBuf(base64);
-	return isPkcs1 ? _pkcs1ToPkcs8(der) : der;
-}
-
-async function _clientSignJwt(appId: string, pem: string): Promise<string> {
-	const now = Math.floor(Date.now() / 1000);
-	const header = { alg: "RS256", typ: "JWT" };
-	const payload = { iat: now - 60, exp: now + 8 * 60, iss: String(appId) };
-	const enc = (obj: unknown) => _b64url(new TextEncoder().encode(JSON.stringify(obj)));
-	const signingInput = `${enc(header)}.${enc(payload)}`;
-	const der = _pemToDer(pem);
-	const key = await crypto.subtle.importKey("pkcs8", der.buffer as ArrayBuffer,
-		{ name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
-	const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key,
-		new TextEncoder().encode(signingInput));
-	return `${signingInput}.${_b64url(sig)}`;
-}
-
-async function _getClientInstallToken(): Promise<string> {
-	if (_clientInstallToken && Date.now() < _clientTokenExpiry) return _clientInstallToken;
-	const pem = getClientKey();
-	const appId = getClientAppId();
-	if (!pem || !appId) throw new Error("客户端密钥未配置，请先导入 .pem 文件");
-	const jwt = await _clientSignJwt(appId, pem);
-	const { owner, repo } = repoConfig;
-	const instResp = await fetch(`https://api.github.com/repos/${owner}/${repo}/installation`, {
-		headers: { Authorization: `Bearer ${jwt}`, Accept: "application/vnd.github+json",
-			"X-GitHub-Api-Version": "2022-11-28", "User-Agent": "Blog-Editor" },
-	});
-	if (!instResp.ok) throw new Error(`获取安装 ID 失败 (${instResp.status})`);
-	const instData = await instResp.json();
-	const tokenResp = await fetch(
-		`https://api.github.com/app/installations/${instData.id}/access_tokens`,
-		{ method: "POST", headers: { Authorization: `Bearer ${jwt}`,
-			Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-			"User-Agent": "Blog-Editor" } },
-	);
-	if (!tokenResp.ok) throw new Error(`获取令牌失败 (${tokenResp.status})`);
-	const tokenData = await tokenResp.json();
-	_clientInstallToken = tokenData.token as string;
-	_clientTokenExpiry = new Date(tokenData.expires_at).getTime() - 60000;
-	return _clientInstallToken!;
-}
-
-async function clientGithubApi(method: string, apiPath: string, body?: unknown): Promise<Response> {
-	try {
-		const token = await _getClientInstallToken();
-		const url = apiPath.startsWith("http") ? apiPath : `https://api.github.com/${apiPath.replace(/^\//, "")}`;
-		const headers: Record<string, string> = {
-			Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json",
-			"X-GitHub-Api-Version": "2022-11-28", "User-Agent": "Blog-Editor",
-		};
-		const opts: RequestInit = { method, headers };
-		if (body !== undefined && method !== "GET") {
-			headers["Content-Type"] = "application/json";
-			opts.body = typeof body === "string" ? body : JSON.stringify(body);
-		}
-		const resp = await fetch(url, opts);
-		if (!resp.ok && (resp.status === 401 || resp.status === 403)) {
-			_clientInstallToken = null; _clientTokenExpiry = 0;
-		}
-		return resp;
-	} catch (e: unknown) {
-		_clientInstallToken = null; _clientTokenExpiry = 0;
-		throw e;
+	if (toRemove.length > 0) {
+		const store = readDraftStore();
+		store.changes = store.changes.filter(c => !toRemove.includes(c.id));
+		writeDraftStore(store);
 	}
+	return { success: success.length, failed: errors.length, errors };
 }
+
+export function onDraftsChanged(callback: (count: number) => void): () => void {
+	const handler = (e: Event) => {
+		const detail = (e as CustomEvent).detail;
+		callback(detail?.count ?? 0);
+	};
+	window.addEventListener("edit-mode:drafts-changed", handler);
+	return () => window.removeEventListener("edit-mode:drafts-changed", handler);
+}
+
+// ============ Gist 类型编辑器草稿辅助 ============
