@@ -5,6 +5,8 @@
 
 import type { APIRoute } from "astro";
 
+export const prerender = false; // 混合模式下强制 SSR
+
 const GH_API = "https://api.github.com";
 
 export const GET: APIRoute = async ({ request }) => {
