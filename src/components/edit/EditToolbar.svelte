@@ -258,17 +258,17 @@
 	{#if !editMode}
 		<button class="edit-main-btn" onclick={enterEdit} title={`编辑${pageName}`}>
 			<iconify-icon icon="material-symbols:edit-rounded" class="text-base"></iconify-icon>
-			编辑{pageName}
+			<span class="btn-text">编辑{pageName}</span>
 		</button>
 	{:else}
 		<button class="edit-btn edit-btn-cancel" onclick={cancelEdit} title={persistentEdit ? "重置更改" : "取消编辑"}>
 			<iconify-icon icon={persistentEdit ? "material-symbols:undo-rounded" : "material-symbols:close-rounded"} class="text-sm"></iconify-icon>
-			{persistentEdit ? "重置" : "取消"}
+			<span class="btn-text">{persistentEdit ? "重置" : "取消"}</span>
 		</button>
 
 		<button class="edit-btn edit-btn-draft" onclick={handleSaveDraft} disabled={!hasChanges}>
 			<iconify-icon icon="material-symbols:save-outline-rounded" class="text-sm"></iconify-icon>
-			保存草稿
+			<span class="btn-text">保存草稿</span>
 			{#if pageDraftCount > 0}
 				<span class="draft-badge">{pageDraftCount}</span>
 			{/if}
@@ -277,18 +277,18 @@
 		{#if authed}
 			<button class="edit-btn edit-btn-key edit-btn-key-ok" onclick={triggerKeyImport} title="已导入私钥，点击重新导入">
 				<iconify-icon icon="material-symbols:vpn-key-rounded" class="text-sm"></iconify-icon>
-				已认证
+				<span class="btn-text">已认证</span>
 			</button>
 		{:else}
 			<button class="edit-btn edit-btn-key edit-btn-key-err" onclick={triggerKeyImport} title="点击导入 GitHub App 私钥">
 				<iconify-icon icon="material-symbols:key-rounded" class="text-sm"></iconify-icon>
-				导入密钥
+				<span class="btn-text">导入密钥</span>
 			</button>
 		{/if}
 
 		<button class="edit-btn edit-btn-batch" onclick={handleBatchSubmit} title="批量提交所有暂存的更改">
 			<iconify-icon icon="material-symbols:cloud-upload-rounded" class="text-sm"></iconify-icon>
-			批量提交
+			<span class="btn-text">批量提交</span>
 			{#if totalDraftCount > 0}
 				<span class="batch-badge">{totalDraftCount}</span>
 			{/if}
@@ -301,7 +301,7 @@
 		{#if showAddButton !== false}
 			<button class="edit-btn edit-btn-add" onclick={handleAdd}>
 				<iconify-icon icon="material-symbols:add-rounded" class="text-base"></iconify-icon>
-				添加
+				<span class="btn-text">添加</span>
 			</button>
 		{/if}
 
@@ -312,10 +312,10 @@
 		>
 			{#if saving}
 				<iconify-icon icon="material-symbols:progress-activity-rounded" class="text-base animate-spin"></iconify-icon>
-				提交中...
+				<span class="btn-text">提交中...</span>
 			{:else}
 				<iconify-icon icon="material-symbols:send-rounded" class="text-base"></iconify-icon>
-				提交
+				<span class="btn-text">提交</span>
 			{/if}
 		</button>
 	{/if}
@@ -696,6 +696,28 @@
 	.edit-btn-submit:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	@media (max-width: 768px) {
+		.edit-toolbar {
+			gap: 6px;
+		}
+		.btn-text {
+			display: none;
+		}
+		.edit-btn {
+			padding: 7px 10px;
+			font-size: 0;
+		}
+		.edit-btn iconify-icon {
+			font-size: 16px;
+		}
+		.edit-main-btn {
+			padding: 7px 12px;
+		}
+		.draft-badge, .batch-badge {
+			margin-left: 0;
+		}
 	}
 
 	.draft-list {
