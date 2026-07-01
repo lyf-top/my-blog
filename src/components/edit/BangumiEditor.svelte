@@ -185,25 +185,19 @@
 				const repoItems: BangumiItem[] = JSON.parse(existing.content);
 				// 只合并与当前页面分类匹配的条目，避免书架页显示电影数据等
 				const allowedCategories = new Set(initialItems.map((i) => i.category));
-				const localKeys = new Set(
-					items.filter((i) => i._local).map((i) => `${i.title}|${i.category}`),
-				);
 				for (const g of repoItems) {
 					// 如果当前页面有初始数据（skipDomCollect模式），只保留匹配分类的条目
 					if (allowedCategories.size > 0 && !allowedCategories.has(g.category)) continue;
-					const key = `${g.title}|${g.category}`;
-					const existingIdx = items.findIndex(
-						(i) => `${i.title}|${i.category}` === key,
-					);
+					// 用 id 匹配（而非 title|category），避免编辑标题后产生重复条目
+					const existingIdx = g.id ? items.findIndex((i) => i.id === g.id) : -1;
 					if (existingIdx >= 0) {
-						items[existingIdx] = { ...g, id: items[existingIdx].id, _local: false };
+						items[existingIdx] = { ...g, _local: false };
 					} else {
 						items = [
 							...items,
 							{ ...g, id: g.id || genId("bgm"), _local: false },
 						];
 					}
-					localKeys.add(key);
 				}
 				sortItems();
 				originalItems = deepClone(items);
@@ -407,9 +401,9 @@
 				const existing = await getRepoFile("public/bangumi.json");
 				if (existing && existing.content) {
 					const repoItems: BangumiItem[] = JSON.parse(existing.content);
-					const currentCategories = new Set(cleanData.map((i) => i.category));
-					// 保留当前页面不涉及的其他分类条目
-					const otherItems = repoItems.filter((r) => !currentCategories.has(r.category));
+					const currentIds = new Set(cleanData.map((i) => i.id));
+					// 保留当前页面不涉及的条目（ID不在当前数据中的）
+					const otherItems = repoItems.filter((r) => !currentIds.has(r.id));
 					const merged = [...otherItems, ...cleanData];
 					items = merged;
 				} else {
