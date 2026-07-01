@@ -531,20 +531,12 @@ export async function updateRepoFile(
 			const errText = await resp.text().catch(() => "");
 			console.error('[updateRepoFile] Failed:', resp.status, errText);
 			invalidateToken();
-			let errMsg = `HTTP ${resp.status}`;
-			try {
-				const errJson = JSON.parse(errText);
-				errMsg = errJson.message || errMsg;
-			} catch {
-				if (errText) errMsg = errText.slice(0, 200);
-			}
-			throw new Error(errMsg);
 		}
-		return true;
+		return resp.ok;
 	} catch (e) {
 		console.error('[updateRepoFile] Exception:', e);
 		invalidateToken();
-		throw e;
+		return false;
 	}
 }
 
@@ -567,20 +559,12 @@ export async function createRepoFile(
 			const errText = await resp.text().catch(() => "");
 			console.error('[createRepoFile] Failed:', resp.status, errText);
 			invalidateToken();
-			let errMsg = `HTTP ${resp.status}`;
-			try {
-				const errJson = JSON.parse(errText);
-				errMsg = errJson.message || errMsg;
-			} catch {
-				if (errText) errMsg = errText.slice(0, 200);
-			}
-			throw new Error(errMsg);
 		}
-		return true;
+		return resp.ok;
 	} catch (e) {
 		console.error('[createRepoFile] Exception:', e);
 		invalidateToken();
-		throw e;
+		return false;
 	}
 }
 
