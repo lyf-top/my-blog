@@ -35,24 +35,6 @@ const specCollection = defineCollection({
 	schema: z.object({}),
 });
 
-const momentsCollection = defineCollection({
-	loader: glob({ pattern: "**/*.{md,mdx}", base: "./src/content/moments" }),
-	schema: ({ image }) =>
-		z.object({
-			author: z.string().optional().default(""),
-			avatar: z.string().optional().default(""),
-			pinned: z.boolean().optional().default(false),
-			published: z.date(),
-			images: z
-				.array(image().or(z.string()))
-				.or(z.string())
-				.optional()
-				.default([]),
-			tags: z.array(z.string()).optional().default([]),
-			location: z.string().optional().default(""),
-			device: z.string().optional().default(""),
-		}),
-});
 
 const bangumiCollection = defineCollection({
 	loader: glob({
@@ -175,7 +157,6 @@ const changelogCollection = defineCollection({
 export const collections = {
 	posts: postsCollection,
 	spec: specCollection,
-	moments: momentsCollection,
 	bangumi: bangumiCollection,
 	life: lifeCollection,
 	notebooks: notebooksCollection,

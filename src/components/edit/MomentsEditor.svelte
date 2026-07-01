@@ -6,17 +6,12 @@
 		getRepoFileMeta,
 		updateRepoFile,
 		createRepoFile,
-		deleteRepoFile,
 		showToast,
 		genId,
 		deepClone,
 		ensureIconify,
 	} from "@/utils/editMode";
 	import { setupRepoDrafts } from "@/utils/draftHelpers";
-
-	const props = $props<{
-		initialLocalCount?: number;
-	}>();
 
 	interface MomentItem {
 		id: string;
@@ -31,7 +26,7 @@
 		_draft?: boolean;
 	}
 
-	const MOMENTS_DIR = "src/content/moments"; // 仓库中的说说目录
+	const MOMENTS_FILE = "public/moments.json"; // 仓库中的说说 JSON 文件
 	const DEFAULT_AVATAR = "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640";
 	const DEFAULT_AUTHOR = "fqzlr";
 
@@ -48,7 +43,7 @@
 		pageName: "说说",
 		getContent: () => JSON.stringify(moments, null, 2),
 		setContent: (v) => (moments = JSON.parse(v)),
-		getPath: () => `${MOMENTS_DIR}/draft.json`, // 草稿文件路径
+		getPath: () => MOMENTS_FILE, // 草稿文件路径
 		getSha: () => fileSha,
 		setSha: (v) => (fileSha = v),
 		getOriginalContent: () => JSON.stringify(originalMoments, null, 2),
@@ -63,87 +58,41 @@
 
 	onMount(() => {
 		ensureIconify();
-		collectFromDOM();
 		loadMomentsData();
 	});
 
-	// ========== 从 DOM 收集 SSR 渲染的本地说说 ==========
-	function collectFromDOM() {
-		const feed = document.getElementById("moments-feed");
-		if (!feed) return;
-		const items: MomentItem[] = [];
-
-		feed.querySelectorAll<HTMLElement>(".wx-feed-item:not(.wx-feed-item-external)").forEach((el) => {
-			const card = el.querySelector<HTMLElement>(".moment-card");
-			if (!card) return;
-
-			const id = card.id || genId("loc");
-			const published = el.dataset.published
-				|| card.querySelector("time")?.getAttribute("datetime")
-				|| new Date().toISOString();
-
-			// 作者
-			const author = card.querySelector(".user-name")?.textContent?.trim() || DEFAULT_AUTHOR;
-
-			// 头像
-			let avatar = "";
-			const avatarImg = card.querySelector<HTMLImageElement>(".card-avatar img.avatar-img");
-			if (avatarImg) {
-				avatar = avatarImg.dataset.src || avatarImg.src || "";
-				// 过滤掉内联 SVG 错误占位
-				if (avatar.startsWith("data:image/svg")) avatar = "";
-			}
-
-			// 内容（取 markdown 渲染后的纯文本）
-			const contentEl = card.querySelector(".moment-markdown");
-			const content = contentEl ? contentEl.textContent?.trim() || "" : "";
-
-			// 图片
-			const images: string[] = [];
-			card.querySelectorAll<HTMLImageElement>(".card-images .image-img").forEach((img) => {
-				const src = img.dataset.src || img.src || "";
-				if (src && !src.startsWith("data:image/svg")) {
-					images.push(src);
-				}
-			});
-
-			// 标签
-			const tags: string[] = [];
-			card.querySelectorAll(".card-tags .tag-item").forEach((tag) => {
-				const t = tag.textContent?.trim().replace(/^#/, "").trim();
-				if (t) tags.push(t);
-			});
-
-			// 位置
-			const locationEl = card.querySelector(".location");
-			const location = locationEl?.textContent?.trim() || undefined;
-
-			// 置顶
-			const pinned = !!card.querySelector(".pinned-badge");
-
-			items.push({
-				id,
-				content,
-				published,
-				images,
-				tags,
-				location,
-				pinned,
-				author,
-				avatar: avatar || undefined,
-			});
-		});
-
-		moments = items;
-		originalMoments = deepClone(items);
-	}
-
-	// ========== 从仓库加载说说数据（仅恢复草稿）==========
+	// ========== 从 JSON 文件加载说说数据 ==========
 	async function loadMomentsData() {
-		// 方案 B：所有说说都来自 SSR 渲染，不需要从外部 JSON 加载
-		// 只需要恢复本地草稿即可
+		// 先恢复本地草稿（如果有）
+		const restored = drafts.restoreFromDrafts();
+		if (restored && moments.length > 0) {
+			gistLoaded = true;
+			return;
+		}
+		// 没有草稿，从 moments.json 加载
+		try {
+			const res = await fetch("/moments.json?t=" + Date.now());
+			if (res.ok) {
+				const data = await res.json();
+				if (Array.isArray(data)) {
+					moments = data.map((m: any) => ({
+						id: m.id || genId("wx"),
+						content: m.content || "",
+						published: m.published || new Date().toISOString(),
+						images: Array.isArray(m.images) ? m.images : [],
+						tags: Array.isArray(m.tags) ? m.tags : [],
+						location: m.location || undefined,
+						pinned: !!m.pinned,
+						author: m.author || DEFAULT_AUTHOR,
+						avatar: m.avatar || DEFAULT_AVATAR,
+					}));
+					originalMoments = deepClone(moments);
+				}
+			}
+		} catch (e) {
+			console.error("[MomentsEditor] Failed to load moments.json:", e);
+		}
 		gistLoaded = true;
-		drafts.restoreFromDrafts();
 	}
 
 	// ========== 时间格式化 ==========
@@ -159,128 +108,6 @@
 		} catch {
 			return iso;
 		}
-	}
-
-	// ========== Markdown 转换工具 ==========
-	// YAML 字符串安全转义（加引号防止数字/布尔值被误解析）
-	function yamlStr(val: string): string {
-		return `"${val.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-	}
-
-	// 去掉 YAML 双引号包裹
-	function unquoteYaml(val: string): string {
-		if (!val) return val;
-		const trimmed = val.trim();
-		if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-			return trimmed.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-		}
-		return trimmed;
-	}
-
-	/**
-	 * 将 MomentItem 转换为 Markdown 文件内容
-	 */
-	function momentToMarkdown(m: MomentItem, filename: string): string {
-		const frontmatter = [
-			'---',
-			`author: ${yamlStr(m.author || DEFAULT_AUTHOR)}`,
-			`avatar: ${yamlStr(m.avatar || DEFAULT_AVATAR)}`,
-			`published: ${new Date(m.published).toISOString().split('T')[0]}`, // YYYY-MM-DD
-		];
-
-		if (m.tags && m.tags.length > 0) {
-			frontmatter.push('tags:');
-			for (const tag of m.tags) {
-				frontmatter.push(`  - ${yamlStr(tag)}`);
-			}
-		}
-
-		if (m.location) {
-			frontmatter.push(`location: ${yamlStr(m.location)}`);
-		}
-
-		if (m.pinned) {
-			frontmatter.push('pinned: true');
-		}
-
-		frontmatter.push('---');
-		frontmatter.push(''); // 空行
-		frontmatter.push(m.content); // 正文内容
-
-		return frontmatter.join('\n');
-	}
-
-	/**
-	 * 从 Markdown 文件内容解析为 MomentItem
-	 */
-	function parseMarkdownToMoment(content: string, filename: string): MomentItem | null {
-		try {
-			// 提取 Frontmatter
-			const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-			if (!fmMatch) return null;
-
-			const fmContent = fmMatch[1];
-			const body = fmMatch[2].trim();
-
-			// 解析 Frontmatter
-			const author = unquoteYaml(fmContent.match(/^author:\s*(.+)$/m)?.[1] || '') || DEFAULT_AUTHOR;
-			const avatar = unquoteYaml(fmContent.match(/^avatar:\s*(.+)$/m)?.[1] || '') || DEFAULT_AVATAR;
-			const publishedStr = fmContent.match(/^published:\s*(.+)$/m)?.[1]?.trim();
-			const location = unquoteYaml(fmContent.match(/^location:\s*(.+)$/m)?.[1] || '') || undefined;
-			const pinned = fmContent.match(/^pinned:\s*true$/m) !== null;
-
-			// 解析 tags（多行格式）
-			const tags: string[] = [];
-			const tagsMatch = fmContent.match(/^tags:\n((?:\s+- .+\n?)+)/m);
-			if (tagsMatch) {
-				const tagLines = tagsMatch[1].match(/-\s+(.+)/g);
-				if (tagLines) {
-					for (const line of tagLines) {
-						const tag = unquoteYaml(line.replace(/^-\s+/, ''));
-						if (tag) tags.push(tag);
-					}
-				}
-			}
-
-			// 生成 ID（从文件名提取或使用内容哈希）
-			const id = `loc-${filename.replace('.md', '')}`;
-
-			// 解析发布时间
-			let published = new Date().toISOString();
-			if (publishedStr) {
-				// 尝试解析 YYYY-MM-DD 或 ISO 格式
-				const date = new Date(publishedStr);
-				if (!isNaN(date.getTime())) {
-					published = date.toISOString();
-				}
-			}
-
-			return {
-				id,
-				content: body,
-				published,
-				images: [], // Markdown 中不存储图片，需要从内容中提取或手动添加
-				tags,
-				location,
-				pinned,
-				author,
-				avatar,
-			};
-		} catch (e) {
-			console.error('Failed to parse markdown:', e);
-			return null;
-		}
-	}
-
-	/**
-	 * 根据说说内容生成文件名
-	 */
-	function generateFilename(m: MomentItem): string {
-		// 使用日期 + 内容前缀作为文件名
-		const date = new Date(m.published);
-		const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-		const contentPrefix = m.content.slice(0, 10).replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '');
-		return `${contentPrefix || 'moment'}${dateStr}.md`;
 	}
 
 	// ========== 编辑模式切换 ==========
@@ -460,6 +287,7 @@
 		try {
 			console.log("[MomentsEditor] Processing", moments.length, "moments");
 
+			// 清洗数据
 			const cleanData: MomentItem[] = moments.map(({ _draft, ...rest }) => ({
 				id: rest.id || genId("wx"),
 				content: rest.content,
@@ -473,68 +301,27 @@
 			}));
 			moments = cleanData;
 
-			// 方案 B：将每个说说保存为独立的 Markdown 文件（使用代理 API）
-			let successCount = 0;
-			let failCount = 0;
-			const errors: string[] = [];
+			// 方案 A：将所有说说保存为单个 JSON 文件
+			const jsonContent = JSON.stringify(cleanData, null, 2);
+			const commitMsg = `feat(moments): 更新说说 (${cleanData.length} 条)`;
 
-			for (const m of cleanData) {
-				const filename = generateFilename(m);
-				const filepath = `${MOMENTS_DIR}/${filename}`;
-				const mdContent = momentToMarkdown(m, filename);
+			console.log(`[MomentsEditor] Saving ${MOMENTS_FILE}`);
 
-				console.log(`[MomentsEditor] Saving ${filepath}`);
-
-				try {
-					const commitMsg = `feat(moments): ${m.pinned ? '置顶' : '更新'}说说 - ${m.content.slice(0, 20)}`;
-					// 使用代理 API 检查文件是否存在
-					const existing = await getRepoFileMeta(filepath);
-					let ok: boolean;
-					if (existing) {
-						// 文件存在，更新
-						ok = await updateRepoFile(filepath, mdContent, existing.sha, commitMsg);
-					} else {
-						// 文件不存在，创建
-						ok = await createRepoFile(filepath, mdContent, commitMsg);
-					}
-					if (ok) {
-						successCount++;
-						console.log(`[MomentsEditor] Successfully saved ${filepath}`);
-					} else {
-						failCount++;
-						errors.push(`${filename}: API 返回失败`);
-						console.error(`[MomentsEditor] Failed to save ${filepath}: API returned false`);
-					}
-				} catch (e: any) {
-					failCount++;
-					errors.push(`${filename}: ${e.message}`);
-					console.error(`[MomentsEditor] Failed to save ${filepath}:`, e);
-				}
+			// 检查文件是否已存在
+			const existing = await getRepoFileMeta(MOMENTS_FILE);
+			let ok: boolean;
+			if (existing) {
+				ok = await updateRepoFile(MOMENTS_FILE, jsonContent, existing.sha, commitMsg);
+			} else {
+				ok = await createRepoFile(MOMENTS_FILE, jsonContent, commitMsg);
 			}
 
-			console.log(`[MomentsEditor] Submit complete: success=${successCount}, fail=${failCount}`);
-
-			if (failCount === 0) {
-				showToast(`成功提交 ${successCount} 条说说到 GitHub`, "success");
-
-				// 尝试删除旧的 public/moments.json 文件
-				try {
-					const oldFile = await getRepoFileMeta("public/moments.json");
-					if (oldFile) {
-						await deleteRepoFile("public/moments.json", oldFile.sha, "chore: remove old moments.json (migrated to markdown)");
-						console.log("[MomentsEditor] Deleted old public/moments.json");
-					}
-				} catch (e) {
-					console.log("[MomentsEditor] Old public/moments.json not found or already deleted");
-				}
-
-				// 清除草稿
+			if (ok) {
+				showToast(`成功提交 ${cleanData.length} 条说说到 GitHub`, "success");
 				drafts.clearDrafts();
-				// 刷新页面以显示最新内容
 				setTimeout(() => window.location.reload(), 1500);
 			} else {
-				showToast(`提交完成：成功 ${successCount}，失败 ${failCount}`, "warning");
-				console.error("提交错误:", errors);
+				showToast("提交失败，请重试", "error");
 			}
 		} catch (e: any) {
 			showToast(`提交失败: ${e.message}`, "error");

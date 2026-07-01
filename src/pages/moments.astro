@@ -1,75 +1,12 @@
----
-import { Image } from "astro:assets";
-import { getCollection } from "astro:content";
+﻿---
 import { Icon } from "astro-icon/components";
 import Comment from "@/components/comment/index.astro";
 import PageTitle from "@/components/common/PageTitle.astro";
-import MomentCard from "@/components/moments/MomentCard.astro";
 import MomentsCover from "@/components/moments/MomentsCover.astro";
 import MomentsEditor from "@/components/edit/MomentsEditor.svelte";
 import MainGridLayout from "@/layouts/MainGridLayout.astro";
 
-const moments = await getCollection("moments");
-const sortedMoments = moments
-	.filter((m) => !m.data.pinned)
-	.sort((a, b) => b.data.published.getTime() - a.data.published.getTime());
-
-// 置顶说说
-const pinnedMoments = moments
-	.filter((m) => m.data.pinned)
-	.sort((a, b) => b.data.published.getTime() - a.data.published.getTime());
-
-// 获取 moments 资产目录下的所有图片
-const momentAssets = import.meta.glob<{ default: ImageMetadata }>(
-	"../content/moments/assets/*.{jpeg,jpg,png,gif,webp,avif}",
-	{ eager: true },
-);
-
-// 解析图片路径
-const parseImages = (imagesData: any): (string | ImageMetadata)[] => {
-	let rawPaths: string[] = [];
-	if (Array.isArray(imagesData)) {
-		rawPaths = imagesData.map((img) =>
-			typeof img === "string" ? img : img.src || img,
-		);
-	} else if (typeof imagesData === "string" && imagesData.trim()) {
-		rawPaths = imagesData
-			.split(/[,;]/)
-			.map((img) => img.trim())
-			.filter((img) => img);
-	}
-
-	return Array.from(new Set(rawPaths))
-		.map((img) => {
-			if (
-				img.startsWith("http://") ||
-				img.startsWith("https://") ||
-				img.startsWith("/")
-			) {
-				return img;
-			}
-			const cleanPath = img.replace(/^\.\//, "");
-			if (cleanPath.startsWith("assets/")) {
-				const fileName = cleanPath.replace("assets/", "");
-				for (const path in momentAssets) {
-					if (path.endsWith(fileName)) {
-						return momentAssets[path].default;
-					}
-				}
-			}
-			return img;
-		})
-		.filter((img) => img);
-};
-
-// 预处理置顶说说
-const pinnedData = pinnedMoments.map((m) => ({
-	images: parseImages(m.data.images),
-	body: m.body || "",
-	date: m.data.published,
-}));
-
-const albums = await getCollection("album");
+import "@/styles/components/moment-card.css";
 ---
 
 <MainGridLayout title="动态" description="记录生活中的点点滴滴">
@@ -85,54 +22,26 @@ const albums = await getCollection("album");
     <div class="page-header-toolbar-slot flex-shrink-0"></div>
   </div>
 
-  <!-- 说说编辑器（Svelte 组件，编辑按钮和外部数据加载） -->
+  <!-- 说说编辑器（Svelte 组件） -->
   <div data-no-swup>
-    <MomentsEditor client:only initialLocalCount={sortedMoments.length + pinnedMoments.length} />
+    <MomentsEditor client:only />
   </div>
 
-  <!-- 置顶说说（始终渲染容器，JS 可动态追加外部置顶） -->
-  <a href="/moments/pinned/" class="wx-pinned" id="pinned-block" style={pinnedData.length === 0 ? 'display:none' : ''}>
+  <!-- 置顶说说（JS 动态填充） -->
+  <div class="wx-pinned" id="pinned-block" style="display:none">
     <div class="wx-pinned-tag">
+      <iconify-icon icon="material-symbols:push-pin"></iconify-icon>
       <span>置顶</span>
     </div>
-    <div class="wx-pinned-items" id="pinned-items">
-      {pinnedData.map((item) => (
-        <div class="wx-pinned-preview">
-          {item.images.length > 0 ? (
-            <div class={`wx-pimgs wx-pimgs-${Math.min(item.images.length, 9)}`}>
-              {item.images.slice(0, 9).map((img) => (
-                typeof img === "string" ? (
-                  <img src={img} alt="" class="wx-pinned-img" loading="lazy" />
-                ) : (
-                  <Image src={img} alt="" class="wx-pinned-img" loading="lazy" />
-                )
-              ))}
-            </div>
-          ) : (
-            <p class="wx-ptxt">{item.body.slice(0, 60)}{item.body.length > 60 ? '...' : ''}</p>
-          )}
-        </div>
-      ))}
-    </div>
-  </a>
+    <div class="wx-pinned-items" id="pinned-items"></div>
+  </div>
 
-  <!-- 说说列表（本地 + 外部合并，按时间排序） -->
+  <!-- 说说列表（JS 动态渲染） -->
   <div class="wx-feed" id="moments-feed">
-    {sortedMoments.length > 0 ? (
-      sortedMoments.map((moment) => (
-        <div class="wx-feed-item" data-published={moment.data.published.toISOString()}>
-          <MomentCard moment={moment} />
-        </div>
-      ))
-    ) : (
-      <div class="wx-empty" id="moments-empty">
-        <div class="wx-empty-icon">
-          <Icon name="material-symbols:sentiment-neutral-outline" />
-        </div>
-        <h3>还没有发布任何说说</h3>
-        <p>快去记录你的生活点滴吧</p>
-      </div>
-    )}
+    <div class="wx-loading" id="moments-loading">
+      <iconify-icon icon="material-symbols:progress-activity-rounded" class="wx-loading-icon"></iconify-icon>
+      <span>加载中...</span>
+    </div>
   </div>
 
   <!-- 评论区 -->
@@ -149,6 +58,7 @@ const albums = await getCollection("album");
 </MainGridLayout>
 
 <script is:inline>
+  // ========== 访客统计 ==========
   var countElements = document.querySelectorAll('.waline-count[data-path="/moments/"]');
   if (countElements.length > 0) {
     var serverURL = "https://co.tsh520.cn";
@@ -162,15 +72,200 @@ const albums = await getCollection("album");
         countElements.forEach(function(el) { el.textContent = "-"; });
       });
   }
+
+  // ========== 说说客户端渲染 ==========
+  var MOMENTS_JSON = "/moments.json";
+  var DEFAULT_AVATAR = "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640";
+  var DEFAULT_AUTHOR = "fqzlr";
+
+  function escapeHtml(str) {
+    if (!str) return "";
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function formatTimeAgo(dateStr) {
+    var date = new Date(dateStr);
+    if (isNaN(date.getTime())) return dateStr;
+    var now = new Date();
+    var diff = now.getTime() - date.getTime();
+    var minutes = Math.floor(diff / 60000);
+    var hours = Math.floor(diff / 3600000);
+    var days = Math.floor(diff / 86400000);
+    if (minutes < 1) return "刚刚";
+    if (minutes < 60) return minutes + "分钟前";
+    if (hours < 24) return hours + "小时前";
+    if (days < 30) return days + "天前";
+    var y = date.getFullYear();
+    var m = String(date.getMonth() + 1).padStart(2, "0");
+    var d = String(date.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + d;
+  }
+
+  function getGridCols(count) {
+    if (count === 1) return 1;
+    if (count === 2 || count === 4) return 2;
+    return 3;
+  }
+
+  function renderMomentCard(m) {
+    var author = escapeHtml(m.author || DEFAULT_AUTHOR);
+    var avatar = escapeHtml(m.avatar || DEFAULT_AVATAR);
+    var content = escapeHtml(m.content || "").replace(/\n/g, "<br>");
+    var time = formatTimeAgo(m.published);
+    var isoTime = new Date(m.published).toISOString();
+
+    // 卡片头部
+    var pinnedBadge = m.pinned
+      ? '<span class="pinned-badge"><iconify-icon icon="material-symbols:pinboard" class="pinned-icon"></iconify-icon><span>置顶</span></span>'
+      : "";
+
+    var locationHtml = m.location
+      ? '<span class="meta-dot">·</span><span class="location"><iconify-icon icon="material-symbols:location-on-outline" class="location-icon"></iconify-icon>' + escapeHtml(m.location) + "</span>"
+      : "";
+
+    var header = '<div class="card-header">'
+      + '<div class="card-avatar"><img src="' + avatar + '" alt="' + author + '" class="avatar-img" loading="lazy" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%23999%22><circle cx=%2212%22 cy=%228%22 r=%224%22/><path d=%22M20 21a8 8 0 1 0-16 0%22/></svg>\'"></div>'
+      + '<div class="card-user-info"><div class="user-row"><span class="user-name">' + author + "</span>" + pinnedBadge + "</div>"
+      + '<div class="meta-row"><time datetime="' + isoTime + '">' + time + "</time>" + locationHtml + "</div></div></div>";
+
+    // 内容
+    var contentHtml = content
+      ? '<div class="card-content"><div class="moment-markdown"><p>' + content + "</p></div></div>"
+      : "";
+
+    // 图片
+    var imagesHtml = "";
+    if (m.images && m.images.length > 0) {
+      var cols = getGridCols(m.images.length);
+      var imgItems = "";
+      var maxShow = 9;
+      for (var i = 0; i < m.images.length && i < maxShow; i++) {
+        var img = escapeHtml(m.images[i]);
+        var isLast = i === maxShow - 1 && m.images.length > maxShow;
+        imgItems += '<div class="image-item">'
+          + '<img src="' + img + '" alt="" class="image-img" loading="lazy" data-fancybox="gallery-' + escapeHtml(m.id) + '" data-src="' + img + '">'
+          + (isLast ? '<div class="more-overlay"><span class="more-text">+' + (m.images.length - maxShow + 1) + "</span></div>" : "")
+          + "</div>";
+      }
+      imagesHtml = '<div class="card-images image-cols-' + cols + '">' + imgItems + "</div>";
+    }
+
+    // 标签
+    var tagsHtml = "";
+    if (m.tags && m.tags.length > 0) {
+      var tagItems = "";
+      for (var j = 0; j < m.tags.length; j++) {
+        var tag = escapeHtml(m.tags[j].trim());
+        if (tag) tagItems += '<a href="/tags/' + encodeURIComponent(tag) + '/" class="tag-item">#' + tag + "</a>";
+      }
+      tagsHtml = '<div class="card-tags">' + tagItems + "</div>";
+    }
+
+    return '<div class="wx-feed-item" data-published="' + isoTime + '">'
+      + '<div id="' + escapeHtml(m.id) + '" class="moment-card group">'
+      + '<div class="card-accent-bar"></div>'
+      + header + contentHtml + imagesHtml + tagsHtml
+      + "</div></div>";
+  }
+
+  function renderPinnedBlock(pinned) {
+    var block = document.getElementById("pinned-block");
+    var container = document.getElementById("pinned-items");
+    if (!block || !container) return;
+
+    if (pinned.length === 0) {
+      block.style.display = "none";
+      return;
+    }
+
+    block.style.display = "";
+    var html = "";
+    for (var i = 0; i < pinned.length; i++) {
+      var m = pinned[i];
+      if (m.images && m.images.length > 0) {
+        var cols = Math.min(m.images.length, 9);
+        var imgs = "";
+        for (var j = 0; j < cols; j++) {
+          imgs += '<img src="' + escapeHtml(m.images[j]) + '" alt="" class="wx-pinned-img" loading="lazy">';
+        }
+        html += '<div class="wx-pinned-preview"><div class="wx-pimgs wx-pimgs-' + cols + '">' + imgs + "</div></div>";
+      } else {
+        var text = (m.content || "").slice(0, 60);
+        if ((m.content || "").length > 60) text += "...";
+        html += '<div class="wx-pinned-preview"><p class="wx-ptxt">' + escapeHtml(text) + "</p></div>";
+      }
+    }
+    container.innerHTML = html;
+  }
+
+  function renderMoments() {
+    var feed = document.getElementById("moments-feed");
+    if (!feed) return;
+
+    fetch(MOMENTS_JSON + "?t=" + Date.now())
+      .then(function(res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function(data) {
+        if (!Array.isArray(data)) data = [];
+
+        // 分离置顶和普通
+        var pinned = [];
+        var normal = [];
+        for (var i = 0; i < data.length; i++) {
+          if (data[i].pinned) pinned.push(data[i]);
+          else normal.push(data[i]);
+        }
+
+        // 按时间倒序
+        pinned.sort(function(a, b) { return new Date(b.published) - new Date(a.published); });
+        normal.sort(function(a, b) { return new Date(b.published) - new Date(a.published); });
+
+        // 渲染置顶
+        renderPinnedBlock(pinned);
+
+        // 渲染列表（置顶在前）
+        var all = pinned.concat(normal);
+        if (all.length === 0) {
+          feed.innerHTML = '<div class="wx-empty" id="moments-empty">'
+            + '<div class="wx-empty-icon"><iconify-icon icon="material-symbols:sentiment-neutral-outline"></iconify-icon></div>'
+            + "<h3>还没有发布任何说说</h3>"
+            + "<p>快去记录你的生活点滴吧</p></div>";
+          return;
+        }
+
+        var html = "";
+        for (var j = 0; j < all.length; j++) {
+          html += renderMomentCard(all[j]);
+        }
+        feed.innerHTML = html;
+
+        // 确保 iconify 加载图标
+        if (window.Iconify && window.Iconify.scan) {
+          window.Iconify.scan(feed);
+          var pinnedBlock = document.getElementById("pinned-block");
+          if (pinnedBlock) window.Iconify.scan(pinnedBlock);
+        }
+      })
+      .catch(function(err) {
+        console.error("[Moments] Failed to load:", err);
+        feed.innerHTML = '<div class="wx-empty"><div class="wx-empty-icon"><iconify-icon icon="material-symbols:error-outline"></iconify-icon></div>'
+          + "<h3>加载失败</h3><p>请稍后刷新页面重试</p></div>";
+      });
+  }
+
+  // 页面加载后渲染
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", renderMoments);
+  } else {
+    renderMoments();
+  }
 </script>
 
-
 <style>
-  /* 置顶块样式在底部 <style is:global> 中，
-     因为 JS 动态创建的外部置顶元素没有 Astro scoped 属性 */
-
   /* ============================================
-   * 说说列表
+   * 说说列表（页面级样式）
    * ============================================ */
   .wx-feed {
     display: flex;
@@ -192,6 +287,27 @@ const albums = await getCollection("album");
     height: 1px;
     background: var(--border);
     opacity: 0.7;
+  }
+
+  /* 加载状态 */
+  .wx-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 3rem 1rem;
+    color: var(--content-meta);
+    font-size: 0.875rem;
+  }
+
+  .wx-loading-icon {
+    font-size: 1.25rem;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 
   /* 空状态 */
@@ -268,4 +384,3 @@ const albums = await getCollection("album");
     }
   }
 </style>
-
