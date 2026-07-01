@@ -11,7 +11,6 @@ import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
 import MainGridLayout from "@/layouts/MainGridLayout.astro";
 import { formatDateI18nWithTime } from "@/utils/date-utils";
-import { removeFileExtension } from "@/utils/url-utils";
 
 if (!siteConfig.pages.moviesGames) {
 	return Astro.redirect("/404/");
@@ -71,7 +70,7 @@ const mgItems: MgItem[] = customBangumi
 		const imageSrc =
 			typeof data.image === "string" ? data.image : data.image.src;
 
-		const finalLink = "/bangumi/" + removeFileExtension(id) + "/";
+		const finalLink = undefined; // bangumi detail page removed
 
 		const subjectTypeMap: Record<string, number> = {
 			anime: 2,

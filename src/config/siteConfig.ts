@@ -182,7 +182,7 @@ export const siteConfig: SiteConfig = {
 		// 日历页面开关
 		calendar: true,
 		// 番剧页面开关
-		bangumi: true,
+		bangumi: false,
 		// 书架页面开关
 		books: true,
 		// 影视游戏页面开关
