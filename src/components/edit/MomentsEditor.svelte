@@ -7,12 +7,18 @@
 		getRepoFileMeta,
 		updateRepoFile,
 		createRepoFile,
+		deleteRepoFile,
+		listRepoFiles,
 		showToast,
 		genId,
 		deepClone,
 		ensureIconify,
+		saveDraft,
+		getDraftsByPage,
+		clearDraftsByPage,
+		registerSubmitHandler,
+		type DraftChange,
 	} from "@/utils/editMode";
-	import { setupRepoDrafts } from "@/utils/draftHelpers";
 
 	interface MomentItem {
 		id: string;
@@ -27,9 +33,11 @@
 		_draft?: boolean;
 	}
 
-	const MOMENTS_FILE = "public/moments.json"; // 仓库中的说说 JSON 文件
+	const MOMENTS_DIR = "src/content/moments"; // 仓库中的说说目录
 	const DEFAULT_AVATAR = "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640";
 	const DEFAULT_AUTHOR = "fqzlr";
+	const PAGE_KEY = "moments";
+	const PAGE_NAME = "说说";
 
 	let editMode = $state(false);
 	let saving = $state(false);
@@ -37,63 +45,158 @@
 	let originalMoments = $state<MomentItem[]>([]);
 	let editingIndex = $state(-1);
 	let gistLoaded = $state(false);
-	let fileSha = $state<string | null>(null);
 
-	const drafts = setupRepoDrafts({
-		pageKey: "moments",
-		pageName: "说说",
-		getContent: () => JSON.stringify(moments, null, 2),
-		setContent: (v) => (moments = JSON.parse(v)),
-		getPath: () => MOMENTS_FILE, // 草稿文件路径
-		getSha: () => fileSha,
-		setSha: (v) => (fileSha = v),
-		getOriginalContent: () => JSON.stringify(originalMoments, null, 2),
-		setOriginalContent: (v) => (originalMoments = JSON.parse(v)),
-		getCommitMsg: (isEdit) => isEdit ? `chore: update moments` : `chore: create moments`,
-		onSubmitted: () => {
-			setTimeout(() => window.location.reload(), 1200);
-		},
+	// ========== Frontmatter 解析/序列化 ==========
+	function parseFrontmatter(raw: string): { data: Record<string, any>; body: string } {
+		const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+		if (!match) return { data: {}, body: raw.trim() };
+		const yamlStr = match[1];
+		const body = match[2].trim();
+		const data: Record<string, any> = {};
+		for (const line of yamlStr.split("\n")) {
+			const colonIdx = line.indexOf(":");
+			if (colonIdx === -1) continue;
+			const key = line.slice(0, colonIdx).trim();
+			let val: any = line.slice(colonIdx + 1).trim();
+			if (val === "") val = "";
+			else if (val === "true") val = true;
+			else if (val === "false") val = false;
+			else if (!isNaN(Number(val)) && val !== "") val = Number(val);
+			else if (val.startsWith("[") && val.endsWith("]")) {
+				const inner = val.slice(1, -1).trim();
+				val = inner ? inner.split(",").map((s: string) => s.trim().replace(/^["']|["']$/g, "")) : [];
+			} else {
+				val = val.replace(/^["']|["']$/g, "");
+			}
+			data[key] = val;
+		}
+		return { data, body };
+	}
+
+	function serializeToFrontmatter(m: MomentItem): string {
+		const published = m.published || new Date().toISOString();
+		const images = (m.images || []).length > 0
+			? `[${m.images.map((i) => `"${i}"`).join(", ")}]`
+			: "[]";
+		const tags = (m.tags || []).length > 0
+			? `[${m.tags.map((t) => `"${t}"`).join(", ")}]`
+			: "[]";
+		const lines = [
+			"---",
+			`published: ${published}`,
+			`author: ${m.author || DEFAULT_AUTHOR}`,
+			`avatar: ${m.avatar || DEFAULT_AVATAR}`,
+			`tags: ${tags}`,
+			`location: ${m.location ? `"${m.location}"` : '""'}`,
+			`images: ${images}`,
+			`pinned: ${m.pinned ? "true" : "false"}`,
+			"---",
+			"",
+			m.content || "",
+			"",
+		];
+		return lines.join("\n");
+	}
+
+	function fileNameFromMoment(m: MomentItem): string {
+		if (m.id && !m._draft) return m.id;
+		const d = new Date(m.published);
+		const base = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+		return `${base}-${genId("wx").slice(-6)}`;
+	}
+
+	// ========== 草稿系统 ==========
+	function saveToDrafts() {
+		const data = JSON.stringify(moments, null, 2);
+		const original = JSON.stringify(originalMoments, null, 2);
+		if (data === original && getDraftsByPage(PAGE_KEY).length === 0) {
+			showToast("没有需要暂存的更改", "info");
+			return;
+		}
+		clearDraftsByPage(PAGE_KEY);
+		saveDraft({
+			pageKey: PAGE_KEY,
+			pageName: PAGE_NAME,
+			description: "更新说说",
+			operation: "update",
+			payload: { type: "moments-md", data: JSON.parse(data) },
+		});
+		showToast("已暂存到本地", "success");
+	}
+
+	function restoreFromDrafts(): boolean {
+		const drafts = getDraftsByPage(PAGE_KEY);
+		if (drafts.length === 0) return false;
+		const latest = drafts[drafts.length - 1];
+		if (latest.payload?.type === "moments-md" && latest.payload.data) {
+			moments = latest.payload.data as MomentItem[];
+			showToast("已恢复暂存数据", "info");
+			return true;
+		}
+		return false;
+	}
+
+	function hasLocalChanges(): boolean {
+		return getDraftsByPage(PAGE_KEY).length > 0 || JSON.stringify(moments) !== JSON.stringify(originalMoments);
+	}
+
+	let hasChanges = $derived(hasLocalChanges());
+
+	// 注册批量提交处理器
+	registerSubmitHandler(PAGE_KEY, async (draft: DraftChange) => {
+		if (draft.payload?.type === "moments-md" && draft.payload.data) {
+			await submitMoments(draft.payload.data as MomentItem[]);
+			return true;
+		}
+		return false;
 	});
-
-	let hasChanges = $derived(drafts.hasLocalChanges());
 
 	onMount(() => {
 		ensureIconify();
 		loadMomentsData();
 	});
 
-	// ========== 从 GitHub API 加载说说数据（实时，不走CDN缓存） ==========
+	// ========== 从 GitHub API 加载说说数据（读取 md 文件） ==========
 	async function loadMomentsData() {
 		// 先恢复本地草稿（如果有）
-		const restored = drafts.restoreFromDrafts();
+		const restored = restoreFromDrafts();
 		if (restored && moments.length > 0) {
 			gistLoaded = true;
 			return;
 		}
-		// 没有草稿，通过 GitHub Contents API 加载（实时数据）
-		console.log("[MomentsEditor] Fetching from GitHub API:", MOMENTS_FILE);
+		// 没有草稿，通过 GitHub Contents API 加载
+		console.log("[MomentsEditor] Fetching from GitHub API:", MOMENTS_DIR);
 		try {
-			const result = await getRepoFile(MOMENTS_FILE);
-			if (result) {
-				const data = JSON.parse(result.content);
-				if (Array.isArray(data)) {
-					moments = data.map((m: any) => ({
-						id: m.id || genId("wx"),
-						content: m.content || "",
-						published: m.published || new Date().toISOString(),
-						images: Array.isArray(m.images) ? m.images : [],
-						tags: Array.isArray(m.tags) ? m.tags : [],
-						location: m.location || undefined,
-						pinned: !!m.pinned,
-						author: m.author || DEFAULT_AUTHOR,
-						avatar: m.avatar || DEFAULT_AVATAR,
-					}));
-					originalMoments = deepClone(moments);
-					fileSha = result.sha;
-				}
-			} else {
-				console.warn("[MomentsEditor] 文件不存在，将创建新文件");
+			const files = await listRepoFiles(MOMENTS_DIR);
+			const mdFiles = files.filter((f) => f.name.endsWith(".md"));
+			console.log(`[MomentsEditor] Found ${mdFiles.length} moment files`);
+
+			const loaded: MomentItem[] = [];
+			for (const file of mdFiles) {
+				const result = await getRepoFile(file.path);
+				if (!result) continue;
+				const { data, body } = parseFrontmatter(result.content);
+				const id = file.name.replace(/\.md$/, "");
+				loaded.push({
+					id,
+					content: body || "",
+					published: data.published ? new Date(data.published).toISOString() : new Date().toISOString(),
+					images: Array.isArray(data.images) ? data.images : [],
+					tags: Array.isArray(data.tags) ? data.tags : [],
+					location: data.location || undefined,
+					pinned: data.pinned === true,
+					author: data.author || DEFAULT_AUTHOR,
+					avatar: data.avatar || DEFAULT_AVATAR,
+				});
 			}
+			// 按发布时间降序排列，置顶优先
+			loaded.sort((a, b) => {
+				if (a.pinned && !b.pinned) return -1;
+				if (!a.pinned && b.pinned) return 1;
+				return new Date(b.published).getTime() - new Date(a.published).getTime();
+			});
+			moments = loaded;
+			originalMoments = deepClone(moments);
 		} catch (e) {
 			console.error("[MomentsEditor] Failed to load from GitHub:", e);
 		}
@@ -139,7 +242,7 @@
 	// ========== 取消编辑：回滚到原始数据 ==========
 	function handleCancel() {
 		moments = deepClone(originalMoments);
-		drafts.clearDrafts();
+		clearDraftsByPage(PAGE_KEY);
 		editingIndex = -1;
 		showSSRFeed();
 	}
@@ -277,7 +380,7 @@
 			avatar: rest.avatar?.trim() || DEFAULT_AVATAR,
 		}));
 		moments = cleanData;
-		drafts.saveToDrafts();
+		saveToDrafts();
 	}
 
 	/** 对比两组数据，生成变更摘要 */
@@ -297,81 +400,112 @@
 		return { added, modified, deleted };
 	}
 
-	async function handleSubmit() {
+	/** 核心提交：将本地数据同步到 GitHub（增删改 md 文件） */
+	async function submitMoments(dataToSubmit: MomentItem[]) {
 		const branch = typeof window !== 'undefined' ? window.__DEPLOY_BRANCH__ : undefined;
-		console.log("[MomentsEditor] handleSubmit called, branch:", branch);
+		console.log("[MomentsEditor] submitMoments, branch:", branch);
 
+		// 清洗数据
+		const cleanData: MomentItem[] = dataToSubmit.map(({ _draft, ...rest }) => ({
+			id: rest.id || fileNameFromMoment(rest),
+			content: rest.content,
+			published: rest.published,
+			images: (rest.images || []).filter((u) => u.trim()),
+			tags: (rest.tags || []).filter((t) => t.trim()),
+			location: rest.location?.trim() || undefined,
+			pinned: rest.pinned || false,
+			author: rest.author?.trim() || DEFAULT_AUTHOR,
+			avatar: rest.avatar?.trim() || DEFAULT_AVATAR,
+		}));
+
+		// 从 GitHub 获取远端当前数据
+		let remoteData: MomentItem[] = [];
+		try {
+			const files = await listRepoFiles(MOMENTS_DIR);
+			const mdFiles = files.filter((f) => f.name.endsWith(".md"));
+			for (const file of mdFiles) {
+				const result = await getRepoFile(file.path);
+				if (!result) continue;
+				const { data, body } = parseFrontmatter(result.content);
+				const id = file.name.replace(/\.md$/, "");
+				remoteData.push({
+					id,
+					content: body || "",
+					published: data.published ? new Date(data.published).toISOString() : new Date().toISOString(),
+					images: Array.isArray(data.images) ? data.images : [],
+					tags: Array.isArray(data.tags) ? data.tags : [],
+					location: data.location || undefined,
+					pinned: data.pinned === true,
+					author: data.author || DEFAULT_AUTHOR,
+					avatar: data.avatar || DEFAULT_AVATAR,
+				});
+			}
+		} catch { /* 目录可能不存在 */ }
+
+		const diff = diffMoments(remoteData, cleanData);
+		const totalChanges = diff.added.length + diff.modified.length + diff.deleted.length;
+
+		if (totalChanges === 0) {
+			showToast("没有检测到任何更改，无需提交", "info");
+			return;
+		}
+
+		// 生成提交信息
+		const parts: string[] = [];
+		if (diff.added.length) parts.push(`新增${diff.added.length}条`);
+		if (diff.modified.length) parts.push(`修改${diff.modified.length}条`);
+		if (diff.deleted.length) parts.push(`删除${diff.deleted.length}条`);
+		const commitMsg = `feat(moments): ${parts.join("，")} (共${cleanData.length}条)`;
+
+		console.log(`[MomentsEditor] Diff:`, diff, `Commit:`, commitMsg);
+
+		let successCount = 0;
+
+		// 1. 新增 & 修改：创建/更新 md 文件
+		const toUpsert = cleanData.filter((m) => diff.added.includes(m.id) || diff.modified.includes(m.id));
+		for (const m of toUpsert) {
+			const fileName = `${m.id}.md`;
+			const filePath = `${MOMENTS_DIR}/${fileName}`;
+			const mdContent = serializeToFrontmatter(m);
+			const existing = await getRepoFileMeta(filePath);
+			let ok: boolean;
+			if (existing) {
+				ok = await updateRepoFile(filePath, mdContent, existing.sha, commitMsg);
+			} else {
+				ok = await createRepoFile(filePath, mdContent, commitMsg);
+			}
+			if (ok) successCount++;
+		}
+
+		// 2. 删除：删除 md 文件
+		for (const id of diff.deleted) {
+			const fileName = `${id}.md`;
+			const filePath = `${MOMENTS_DIR}/${fileName}`;
+			const existing = await getRepoFileMeta(filePath);
+			if (existing) {
+				const ok = await deleteRepoFile(filePath, existing.sha, commitMsg);
+				if (ok) successCount++;
+			}
+		}
+
+		if (successCount > 0) {
+			showToast(`成功提交: ${parts.join("，")}`, "success");
+			clearDraftsByPage(PAGE_KEY);
+			setTimeout(() => window.location.reload(), 1500);
+		} else {
+			showToast("提交失败，请重试", "error");
+		}
+	}
+
+	async function handleSubmit() {
 		if (editingIndex >= 0) {
 			finishEdit(editingIndex);
 			if (editingIndex >= 0) return;
 		}
 		saving = true;
 		try {
-			console.log("[MomentsEditor] Processing", moments.length, "moments");
-
-			// 清洗数据（保留原始 id，不给已有说说重新生成）
-			const cleanData: MomentItem[] = moments.map(({ _draft, ...rest }) => ({
-				id: rest.id || genId("wx"),
-				content: rest.content,
-				published: rest.published,
-				images: (rest.images || []).filter((u) => u.trim()),
-				tags: (rest.tags || []).filter((t) => t.trim()),
-				location: rest.location?.trim() || undefined,
-				pinned: rest.pinned || false,
-				author: rest.author?.trim() || DEFAULT_AUTHOR,
-				avatar: rest.avatar?.trim() || DEFAULT_AVATAR,
-			}));
-			moments = cleanData;
-
-			// 先从 GitHub API 获取远端当前数据，对比差异
-			let remoteData: MomentItem[] = [];
-			try {
-				const result = await getRepoFile(MOMENTS_FILE);
-				if (result) {
-					const parsed = JSON.parse(result.content);
-					if (Array.isArray(parsed)) remoteData = parsed;
-				}
-			} catch { /* 文件可能不存在，忽略 */ }
-
-			const diff = diffMoments(remoteData, cleanData);
-			const totalChanges = diff.added.length + diff.modified.length + diff.deleted.length;
-
-			if (totalChanges === 0) {
-				showToast("没有检测到任何更改，无需提交", "info");
-				saving = false;
-				return;
-			}
-
-			// 生成有意义的提交信息
-			const parts: string[] = [];
-			if (diff.added.length) parts.push(`新增${diff.added.length}条`);
-			if (diff.modified.length) parts.push(`修改${diff.modified.length}条`);
-			if (diff.deleted.length) parts.push(`删除${diff.deleted.length}条`);
-			const commitMsg = `feat(moments): ${parts.join("，")} (共${cleanData.length}条)`;
-
-			console.log(`[MomentsEditor] Diff:`, diff, `Commit:`, commitMsg);
-
-			// 方案 A：将所有说说保存为单个 JSON 文件
-			const jsonContent = JSON.stringify(cleanData, null, 2);
-
-			console.log(`[MomentsEditor] Saving ${MOMENTS_FILE}`);
-
-			// 检查文件是否已存在
-			const existing = await getRepoFileMeta(MOMENTS_FILE);
-			let ok: boolean;
-			if (existing) {
-				ok = await updateRepoFile(MOMENTS_FILE, jsonContent, existing.sha, commitMsg);
-			} else {
-				ok = await createRepoFile(MOMENTS_FILE, jsonContent, commitMsg);
-			}
-
-			if (ok) {
-				showToast(`成功提交: ${parts.join("，")}`, "success");
-				drafts.clearDrafts();
-				setTimeout(() => window.location.reload(), 1500);
-			} else {
-				showToast("提交失败，请重试", "error");
-			}
+			await submitMoments(moments);
+			originalMoments = deepClone(moments);
 		} catch (e: any) {
 			showToast(`提交失败: ${e.message}`, "error");
 			console.error("[MomentsEditor] handleSubmit error:", e);
