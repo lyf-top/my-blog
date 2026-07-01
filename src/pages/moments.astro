@@ -74,11 +74,11 @@ import "@/styles/components/moment-card.css";
   }
 
   // ========== 说说客户端渲染 ==========
-  const GH_OWNER = "fqzlr";
-  const GH_REPO = "my-blog";
+  const GH_OWNER = import.meta.env.PUBLIC_GITHUB_OWNER || "fqzlr";
+  const GH_REPO = import.meta.env.PUBLIC_GITHUB_REPO || "my-blog";
   const MOMENTS_PATH = "public/moments.json";
   const DEFAULT_AVATAR = "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640";
-  const DEFAULT_AUTHOR = "fqzlr";
+  const DEFAULT_AUTHOR = import.meta.env.PUBLIC_GITHUB_OWNER || "fqzlr";
 
   /**
    * 通过 /api/github 代理读取 GitHub Contents API（实时，不走CDN缓存）

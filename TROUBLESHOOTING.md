@@ -26,10 +26,10 @@ http://localhost:4321/api/diagnose-env.json
   "message": "Environment Variables Diagnostic",
   "timestamp": "...",
   "variables": {
-    "GH_APP_ID": "4173368",
+    "PUBLIC_GITHUB_APP_ID": "4173368",
     "GH_PRIVATE_KEY": "✓ Set (length: XXXX)",
-    "GH_USER": "fqzlr",
-    "GH_REPO": "my-blog",
+    "PUBLIC_GITHUB_OWNER": "fqzlr",
+    "PUBLIC_GITHUB_REPO": "my-blog",
     "NODE_ENV": "production",
     "VERCEL": "1"
   },
@@ -51,10 +51,10 @@ http://localhost:4321/api/diagnose-env.json
 
    | 变量名 | 值 | 说明 |
    |--------|-----|------|
-   | `GH_APP_ID` | `4173368` | 你的 GitHub App ID |
+   | `PUBLIC_GITHUB_APP_ID` | `4173368` | 你的 GitHub App ID |
    | `GH_PRIVATE_KEY` | `"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"` | 完整的 PEM 私钥，换行用 `\n` 表示 |
-   | `GH_USER` | `fqzlr` | GitHub 用户名 |
-   | `GH_REPO` | `my-blog` | 仓库名称 |
+   | `PUBLIC_GITHUB_OWNER` | `fqzlr` | GitHub 用户名 |
+   | `PUBLIC_GITHUB_REPO` | `my-blog` | 仓库名称 |
 
 4. **重要提示：**
    - `GH_PRIVATE_KEY` 必须包含完整的 BEGIN 和 END 标记

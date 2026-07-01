@@ -10,10 +10,10 @@ console.log('=== Moments API 测试 ===\n');
 
 // 检查环境变量
 console.log('1. 检查环境变量配置:');
-console.log(`   GH_APP_ID: ${process.env.GH_APP_ID ? '✓ 已配置' : '✗ 未配置'}`);
+console.log(`   PUBLIC_GITHUB_APP_ID: ${process.env.PUBLIC_GITHUB_APP_ID ? '✓ 已配置' : '✗ 未配置'}`);
 console.log(`   GH_PRIVATE_KEY: ${process.env.GH_PRIVATE_KEY ? '✓ 已配置' : '✗ 未配置'}`);
-console.log(`   GH_USER: ${process.env.GH_USER || '未配置 (使用默认值)'}`);
-console.log(`   GH_REPO: ${process.env.GH_REPO || '未配置 (使用默认值)'}`);
+console.log(`   PUBLIC_GITHUB_OWNER: ${process.env.PUBLIC_GITHUB_OWNER || '未配置 (使用默认值)'}`);
+console.log(`   PUBLIC_GITHUB_REPO: ${process.env.PUBLIC_GITHUB_REPO || '未配置 (使用默认值)'}`);
 console.log('');
 
 // 检查 PEM 文件格式
@@ -62,7 +62,7 @@ console.log('');
 
 console.log('5. 常见问题排查:');
 console.log('   a) 如果显示"未认证":');
-console.log('      - 确认 .env 文件中配置了 GH_APP_ID 和 GH_PRIVATE_KEY');
+console.log('      - 确认 .env 文件中配置了 PUBLIC_GITHUB_APP_ID 和 GH_PRIVATE_KEY');
 console.log('      - 或在浏览器中手动导入 .pem 文件');
 console.log('   b) 如果提交失败:');
 console.log('      - 检查 GitHub App 是否已安装到目标仓库');

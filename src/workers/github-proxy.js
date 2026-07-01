@@ -1,6 +1,6 @@
 /**
  * GitHub API 代理 - 支持服务端 GitHub App 认证
- * 如果配置了 GH_APP_ID + GH_PRIVATE_KEY 环境变量，自动为请求添加认证
+ * 如果配置了 PUBLIC_GITHUB_APP_ID + GH_PRIVATE_KEY 环境变量，自动为请求添加认证
  * 客户端无需导入 PEM 私钥
  * 同时支持 Cloudflare Workers 和 Vercel Edge Functions
  */
@@ -108,7 +108,7 @@ async function getInstallationTokenServer(env) {
 	const now = Date.now();
 	if (cachedToken && now < cachedTokenExpiry) return cachedToken;
 
-	const appId = env.GH_APP_ID;
+	const appId = env.PUBLIC_GITHUB_APP_ID;
 	const privateKey = env.GH_PRIVATE_KEY;
 	if (!appId || !privateKey) return null;
 
@@ -121,8 +121,8 @@ async function getInstallationTokenServer(env) {
 		};
 
 		// 获取 installation ID
-		const ghUser = env.GH_USER || "fqzlr";
-		const ghRepo = env.GH_REPO || "my-blog";
+		const ghUser = env.PUBLIC_GITHUB_OWNER || "fqzlr";
+		const ghRepo = env.PUBLIC_GITHUB_REPO || "my-blog";
 		let installationId = null;
 
 		const instResp = await fetch(`${GH_API}/app/installations`, { headers: authHeaders });
@@ -177,15 +177,15 @@ export async function handleGithubProxy(request, env) {
 	if (request.method === "GET") {
 		const url = new URL(request.url);
 		const path = url.searchParams.get("path");
-		const hasServerAuth = !!(env && env.GH_APP_ID && env.GH_PRIVATE_KEY);
-		const hasAppId = !!(env && env.GH_APP_ID);
+		const hasServerAuth = !!(env && env.PUBLIC_GITHUB_APP_ID && env.GH_PRIVATE_KEY);
+		const hasAppId = !!(env && env.PUBLIC_GITHUB_APP_ID);
 		if (!path) {
 			return jsonResponse({
 				ok: true,
 				status: "proxy-ready",
 				serverAuth: hasServerAuth,
 				hasAppId,
-				appId: hasAppId ? env.GH_APP_ID : "",
+				appId: hasAppId ? env.PUBLIC_GITHUB_APP_ID : "",
 				message: hasServerAuth
 					? "GitHub proxy with server-side auth is running."
 					: hasAppId
@@ -201,7 +201,7 @@ export async function handleGithubProxy(request, env) {
 			clientAuthObj.Authorization = clientAuth;
 		}
 		let extraHeaders = { ...clientAuthObj };
-		if (!clientAuth && env && env.GH_APP_ID && env.GH_PRIVATE_KEY) {
+		if (!clientAuth && env && env.PUBLIC_GITHUB_APP_ID && env.GH_PRIVATE_KEY) {
 			const serverToken = await getInstallationTokenServer(env);
 			if (serverToken) {
 				extraHeaders = { Authorization: `Bearer ${serverToken}` };
@@ -239,7 +239,7 @@ export async function handleGithubProxy(request, env) {
 
 		// 如果客户端没有 Authorization，且服务端有完整凭据，使用服务端认证
 		const hasClientAuth = headers.Authorization || headers.authorization;
-		if (!hasClientAuth && env && env.GH_APP_ID && env.GH_PRIVATE_KEY) {
+		if (!hasClientAuth && env && env.PUBLIC_GITHUB_APP_ID && env.GH_PRIVATE_KEY) {
 			const serverToken = await getInstallationTokenServer(env);
 			if (serverToken) {
 				headers.Authorization = `Bearer ${serverToken}`;

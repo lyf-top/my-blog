@@ -2,9 +2,7 @@
 	import { onMount, createEventDispatcher, tick } from "svelte";
 	const dispatch = createEventDispatcher();
 	import {
-		getStoredAppId,
 		setStoredAppId,
-		getStoredPrivateKey,
 		setStoredPrivateKey,
 		clearStoredCredentials,
 		hasValidCredentials,
@@ -13,16 +11,12 @@
 		showToast,
 		ensureIconify,
 		invalidateToken,
-		saveDraft,
 		getDraftCount,
 		getDraftsByPage,
 		removeDraft,
-		clearDraftsByPage,
 		submitAllDrafts,
 		onDraftsChanged,
 		checkProxyConfigured,
-		isServerAuth,
-		isProxyAppIdAvailable,
 	} from "@/utils/editMode";
 	import { repoConfig } from "@/config/editConfig";
 
@@ -49,7 +43,6 @@
 	let editMode = $state(false);
 	let authed = $state(false);
 	let validating = $state(false);
-	let showKeyModal = $state(false);
 	let showHelpModal = $state(false);
 	let showDraftModal = $state(false);
 	let showBatchSubmitModal = $state(false);
@@ -60,10 +53,8 @@
 	let submittingBatch = $state(false);
 	let batchResult = $state<{ success: number; failed: number; errors: string[] } | null>(null);
 
-	let appIdInput = $state("");
+	// 密钥导入相关（参考 WriteEditor 方式）
 	let selectedFileName = $state("");
-	let pendingKeyPem = $state("");
-	let fileInputEl = $state<HTMLInputElement>();
 	let keyFileInputEl = $state<HTMLInputElement>();
 	let pageDraftCount = $state(0);
 	let totalDraftCount = $state(0);
@@ -71,7 +62,6 @@
 
 	onMount(async () => {
 		ensureIconify();
-		appIdInput = getStoredAppId();
 		// 检查服务端代理认证
 		const proxyOk = await checkProxyConfigured();
 		authed = proxyOk || hasValidCredentials();
@@ -140,68 +130,44 @@
 		dispatch("add");
 	}
 
-	function openKeyModal() {
-		appIdInput = getStoredAppId();
-		pendingKeyPem = "";
-		selectedFileName = "";
-		showKeyModal = true;
-	}
-
-	function closeKeyModal() {
-		showKeyModal = false;
-		pendingKeyPem = "";
-		selectedFileName = "";
+	// 密钥导入相关（参考 WriteEditor 方式）
+	function triggerKeyImport() {
+		keyFileInputEl?.click();
 	}
 
 	async function handleKeyFileSelect(e: Event) {
 		const input = e.target as HTMLInputElement;
 		const file = input.files?.[0];
-		if (!file) return;
-		selectedFileName = file.name;
+		if (!file) {
+			input.value = "";
+			return;
+		}
 		try {
-			pendingKeyPem = await readFileAsText(file);
-		} catch {
-			showToast("读取文件失败", "error");
-			pendingKeyPem = "";
-			selectedFileName = "";
+			const pem = await readFileAsText(file);
+			const appId = repoConfig.appId;
+			if (!appId) {
+				showToast("请先在 Vercel 环境变量中配置 PUBLIC_GITHUB_APP_ID", "error");
+				input.value = "";
+				return;
+			}
+			validating = true;
+			showToast("正在验证私钥...", "info");
+			const result = await validateCredentials(appId, pem);
+			if (result.ok) {
+				setStoredAppId(appId);
+				setStoredPrivateKey(pem);
+				authed = true;
+				selectedFileName = file.name;
+				showToast("私钥导入成功！", "success");
+			} else {
+				showToast(result.error || "私钥验证失败", "error");
+			}
+		} catch (err) {
+			showToast("读取私钥文件失败", "error");
+		} finally {
+			validating = false;
+			input.value = "";
 		}
-	}
-
-	function triggerKeyFilePick() {
-		keyFileInputEl?.click();
-	}
-
-	async function handleImportKey() {
-		const appIdToUse = repoConfigHasAppId() ? getStoredAppId() : appIdInput.trim();
-		if (!appIdToUse) {
-			showToast("请填写 GitHub App ID", "error");
-			return;
-		}
-		if (!pendingKeyPem && !getStoredPrivateKey()) {
-			showToast("请选择 .pem 私钥文件", "error");
-			return;
-		}
-		const pemToUse = pendingKeyPem || getStoredPrivateKey();
-		validating = true;
-		const result = await validateCredentials(appIdToUse, pemToUse);
-		validating = false;
-		if (result.ok) {
-			// 始终保存验证成功的 App ID
-			setStoredAppId(appIdToUse);
-			if (pendingKeyPem) setStoredPrivateKey(pemToUse);
-			authed = true;
-			showKeyModal = false;
-			pendingKeyPem = "";
-			selectedFileName = "";
-			showToast("私钥验证成功，可以提交到GitHub", "success");
-			dispatch("authChange", { authed: true });
-		} else {
-			showToast(result.error || "验证失败", "error");
-		}
-	}
-
-	function repoConfigHasAppId(): boolean {
-		return !!repoConfig?.appId || isProxyAppIdAvailable();
 	}
 
 	function handleLogout() {
@@ -209,7 +175,6 @@
 		clearStoredCredentials();
 		invalidateToken();
 		authed = false;
-		appIdInput = "";
 		showToast("已清除私钥", "info");
 		dispatch("authChange", { authed: false });
 	}
@@ -221,7 +186,7 @@
 	function handleSubmitSingle() {
 		if (!authed) {
 			showToast("请先导入 GitHub App 私钥", "warning");
-			openKeyModal();
+			triggerKeyImport();
 			return;
 		}
 		if (!hasChanges && pageDraftCount === 0) {
@@ -234,7 +199,7 @@
 	async function handleBatchSubmit() {
 		if (!authed) {
 			showToast("请先导入 GitHub App 私钥", "warning");
-			openKeyModal();
+			triggerKeyImport();
 			return;
 		}
 		if (totalDraftCount === 0) {
@@ -243,6 +208,8 @@
 		}
 		showBatchSubmitModal = true;
 		batchResult = null;
+		// 禁用 body 滚动
+		document.body.style.overflow = 'hidden';
 	}
 
 	async function confirmBatchSubmit() {
@@ -270,6 +237,20 @@
 	function closeBatchModal() {
 		showBatchSubmitModal = false;
 		batchResult = null;
+		// 恢复 body 滚动
+		document.body.style.overflow = '';
+	}
+
+	function openHelpModal() {
+		showHelpModal = true;
+		// 禁用 body 滚动
+		document.body.style.overflow = 'hidden';
+	}
+
+	function closeHelpModal() {
+		showHelpModal = false;
+		// 恢复 body 滚动
+		document.body.style.overflow = '';
 	}
 </script>
 
@@ -294,12 +275,12 @@
 		</button>
 
 		{#if authed}
-			<button class="edit-btn edit-btn-key edit-btn-key-ok" onclick={openKeyModal} title="已导入私钥，点击管理">
+			<button class="edit-btn edit-btn-key edit-btn-key-ok" onclick={triggerKeyImport} title="已导入私钥，点击重新导入">
 				<iconify-icon icon="material-symbols:vpn-key-rounded" class="text-sm"></iconify-icon>
 				已认证
 			</button>
 		{:else}
-			<button class="edit-btn edit-btn-key edit-btn-key-err" onclick={openKeyModal} title="点击导入 GitHub App 私钥">
+			<button class="edit-btn edit-btn-key edit-btn-key-err" onclick={triggerKeyImport} title="点击导入 GitHub App 私钥">
 				<iconify-icon icon="material-symbols:key-rounded" class="text-sm"></iconify-icon>
 				导入密钥
 			</button>
@@ -313,7 +294,7 @@
 			{/if}
 		</button>
 
-		<button class="edit-btn edit-btn-help" onclick={() => (showHelpModal = true)} title="使用帮助">
+		<button class="edit-btn edit-btn-help" onclick={openHelpModal} title="使用帮助">
 			<iconify-icon icon="material-symbols:help-outline-rounded" class="text-sm"></iconify-icon>
 		</button>
 
@@ -339,113 +320,14 @@
 		</button>
 	{/if}
 
-	<!-- 密钥导入弹窗 -->
-	{#if showKeyModal}
-		<div class="modal-overlay" onclick={closeKeyModal}>
-			<div class="modal-card" onclick={(e) => e.stopPropagation()}>
-				<div class="modal-header">
-					<h3>
-						<iconify-icon icon="material-symbols:key-rounded" class="text-lg mr-2"></iconify-icon>
-						{#if isServerAuth()}
-							服务端认证
-						{:else}
-							GitHub App 私钥认证
-						{/if}
-					</h3>
-					<button class="modal-close" onclick={closeKeyModal}>
-						<iconify-icon icon="material-symbols:close-rounded" class="text-xl"></iconify-icon>
-					</button>
-				</div>
-				<div class="modal-body">
-					{#if isServerAuth()}
-						<div class="auth-status auth-ok">
-							<iconify-icon icon="material-symbols:check-circle-rounded" class="mr-1"></iconify-icon>
-							已通过服务端 GitHub App 认证，无需导入私钥。
-						</div>
-						<p class="modal-desc">
-							认证由 Cloudflare Worker 环境变量中的 GH_APP_ID 和 GH_PRIVATE_KEY 自动处理。
-						</p>
-					{:else}
-						<p class="modal-desc">
-							导入你的 GitHub App 私钥文件（.pem），即可安全地将更改提交到 GitHub。
-							私钥仅存储在本地浏览器中，不会上传到服务器。
-						</p>
-
-						{#if !repoConfigHasAppId()}
-							<div class="form-group">
-								<label>GitHub App ID</label>
-								<input
-									type="text"
-									bind:value={appIdInput}
-									placeholder="输入 App ID（纯数字）"
-									class="form-input"
-								/>
-							</div>
-						{:else}
-							<div class="form-hint">
-								<iconify-icon icon="material-symbols:info-outline-rounded" class="text-sm mr-1"></iconify-icon>
-								{#if isProxyAppIdAvailable()}
-									App ID 已从服务端环境变量中读取，无需手动输入。
-								{:else}
-									App ID 已从站点配置中读取，无需手动输入。
-								{/if}
-							</div>
-						{/if}
-
-						<div class="form-group">
-							<label>私钥文件 (.pem)</label>
-							<div class="file-pick-area">
-								<button class="file-pick-btn" onclick={triggerKeyFilePick} type="button">
-									<iconify-icon icon="material-symbols:upload-file-rounded" class="text-base mr-1"></iconify-icon>
-									选择文件
-								</button>
-								<span class="file-name">
-									{#if selectedFileName}
-										<iconify-icon icon="material-symbols:check-circle-rounded" style="color:#22c55e" class="mr-1"></iconify-icon>
-										{selectedFileName}
-									{:else if getStoredPrivateKey()}
-										<iconify-icon icon="material-symbols:check-circle-rounded" style="color:#22c55e" class="mr-1"></iconify-icon>
-										已保存私钥（可重新选择覆盖）
-									{:else}
-										未选择文件
-									{/if}
-								</span>
-								<input
-									type="file"
-									accept=".pem,application/x-pem-file,text/plain"
-									bind:this={keyFileInputEl}
-									onchange={handleKeyFileSelect}
-									style="display:none"
-								/>
-							</div>
-						</div>
-
-						{#if authed}
-						<div class="auth-status auth-ok">
-							<iconify-icon icon="material-symbols:check-circle-rounded" class="mr-1"></iconify-icon>
-							当前已认证，可直接提交。
-							<button class="logout-link" onclick={handleLogout}>清除私钥</button>
-						</div>
-						{/if}
-					{/if}
-				</div>
-				<div class="modal-footer">
-					<button class="modal-btn modal-btn-cancel" onclick={closeKeyModal}>关闭</button>
-					{#if !isServerAuth()}
-						<button class="modal-btn modal-btn-ok" onclick={handleImportKey} disabled={validating}>
-							{#if validating}
-								<iconify-icon icon="material-symbols:progress-activity-rounded" class="text-sm animate-spin mr-1"></iconify-icon>
-								验证中...
-							{:else}
-								<iconify-icon icon="material-symbols:check-rounded" class="text-sm mr-1"></iconify-icon>
-								{authed ? "更新密钥" : "导入并验证"}
-							{/if}
-						</button>
-					{/if}
-				</div>
-			</div>
-		</div>
-	{/if}
+	<!-- 密钥文件选择器（隐藏） -->
+	<input
+		type="file"
+		accept=".pem,application/x-pem-file,text/plain"
+		bind:this={keyFileInputEl}
+		onchange={handleKeyFileSelect}
+		style="display:none"
+	/>
 
 <!-- 批量提交弹窗 -->
 {#if showBatchSubmitModal}
@@ -521,14 +403,14 @@
 
 <!-- 使用帮助弹窗 -->
 {#if showHelpModal}
-	<div class="modal-overlay" onclick={() => (showHelpModal = false)}>
+	<div class="modal-overlay" onclick={closeHelpModal}>
 		<div class="modal-card" onclick={(e) => e.stopPropagation()}>
 			<div class="modal-header">
 				<h3>
 					<iconify-icon icon="material-symbols:help-outline-rounded" class="text-lg mr-2"></iconify-icon>
 					在线编辑使用帮助
 				</h3>
-				<button class="modal-close" onclick={() => (showHelpModal = false)}>
+				<button class="modal-close" onclick={closeHelpModal}>
 					<iconify-icon icon="material-symbols:close-rounded" class="text-xl"></iconify-icon>
 				</button>
 			</div>
@@ -999,141 +881,6 @@
 	:global(.dark) .modal-desc {
 		color: hsl(var(--theme-hue, 165), 70%, 65%);
 		background: hsl(var(--theme-hue, 165), 70%, 50%, 0.12);
-	}
-
-	.form-group {
-		margin-bottom: 16px;
-	}
-	.form-group label {
-		display: block;
-		font-weight: 600;
-		font-size: 13px;
-		margin-bottom: 6px;
-		color: #222;
-	}
-	:global(.dark) .form-group label {
-		color: #e0e0e0;
-	}
-	.form-input {
-		width: 100%;
-		padding: 10px 14px;
-		border-radius: 8px;
-		border: 1px solid rgba(0, 0, 0, 0.15);
-		background: #fff;
-		font-size: 14px;
-		box-sizing: border-box;
-		outline: none;
-		transition: border-color 0.2s, box-shadow 0.2s;
-		color: #1a1a2e;
-	}
-	.form-input:focus {
-		border-color: hsl(var(--theme-hue, 165), 70%, 50%);
-		box-shadow: 0 0 0 3px hsla(var(--theme-hue, 165), 70%, 50%, 0.15);
-	}
-	:global(.dark) .form-input {
-		background: #2a2a40;
-		border-color: rgba(255, 255, 255, 0.12);
-		color: #f0f0f0;
-	}
-	:global(.dark) .form-input:focus {
-		border-color: hsl(var(--theme-hue, 165), 70%, 55%);
-		box-shadow: 0 0 0 3px hsla(var(--theme-hue, 165), 70%, 50%, 0.2);
-	}
-
-	.file-pick-area {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		flex-wrap: wrap;
-	}
-	.file-pick-btn {
-		display: inline-flex;
-		align-items: center;
-		padding: 9px 16px;
-		border-radius: 8px;
-		border: 1px dashed rgba(0, 0, 0, 0.3);
-		background: rgba(0, 0, 0, 0.03);
-		color: #333;
-		font-size: 13px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s;
-		white-space: nowrap;
-	}
-	.file-pick-btn:hover {
-		border-color: hsl(var(--theme-hue, 165), 70%, 50%);
-		background: hsla(var(--theme-hue, 165), 70%, 50%, 0.08);
-		color: hsl(var(--theme-hue, 165), 70%, 40%);
-	}
-	:global(.dark) .file-pick-btn {
-		border-color: rgba(255, 255, 255, 0.2);
-		background: rgba(255, 255, 255, 0.05);
-		color: #ddd;
-	}
-	:global(.dark) .file-pick-btn:hover {
-		border-color: hsl(var(--theme-hue, 165), 70%, 55%);
-		background: hsla(var(--theme-hue, 165), 70%, 50%, 0.12);
-		color: hsl(var(--theme-hue, 165), 70%, 65%);
-	}
-	.file-name {
-		font-size: 13px;
-		color: #666;
-		display: inline-flex;
-		align-items: center;
-	}
-	:global(.dark) .file-name {
-		color: #aaa;
-	}
-
-	.auth-status {
-		padding: 10px 14px;
-		border-radius: 8px;
-		font-size: 13px;
-		margin: 12px 0;
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 8px;
-	}
-	.auth-ok {
-		background: rgba(34, 197, 94, 0.1);
-		color: #16a34a;
-		border: 1px solid rgba(34, 197, 94, 0.25);
-	}
-	:global(.dark) .auth-ok {
-		background: rgba(74, 222, 128, 0.1);
-		color: #4ade80;
-		border-color: rgba(74, 222, 128, 0.2);
-	}
-	.logout-link {
-		margin-left: auto;
-		background: none;
-		border: none;
-		color: #dc2626;
-		font-size: 12px;
-		cursor: pointer;
-		text-decoration: underline;
-		padding: 0;
-	}
-	.logout-link:hover { color: #b91c1c; }
-	:global(.dark) .logout-link { color: #f87171; }
-	:global(.dark) .logout-link:hover { color: #fca5a5; }
-
-	.form-hint {
-		display: flex;
-		align-items: flex-start;
-		gap: 6px;
-		margin-top: 8px;
-		padding: 10px 12px;
-		border-radius: 8px;
-		background: rgba(59, 130, 246, 0.08);
-		color: #1e40af;
-		font-size: 12px;
-		line-height: 1.5;
-	}
-	:global(.dark) .form-hint {
-		background: rgba(96, 165, 250, 0.1);
-		color: #93c5fd;
 	}
 
 	.modal-footer {

@@ -7,10 +7,10 @@
 确保在 Vercel 项目设置中配置了以下环境变量：
 
 ```
-GH_APP_ID=你的GitHub_App_ID
+PUBLIC_GITHUB_APP_ID=你的GitHub_App_ID
 GH_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----"
-GH_USER=fqzlr
-GH_REPO=my-blog
+PUBLIC_GITHUB_OWNER=fqzlr
+PUBLIC_GITHUB_REPO=my-blog
 ```
 
 **重要提示：**
@@ -128,7 +128,7 @@ GH_REPO=my-blog
 **解决方案：**
 1. 访问 https://github.com/settings/installations
 2. 确认 App 已安装到 `fqzlr/my-blog`
-3. 检查 `GH_USER` 和 `GH_REPO` 环境变量是否正确
+3. 检查 `PUBLIC_GITHUB_OWNER` 和 `PUBLIC_GITHUB_REPO` 环境变量是否正确
 
 ### 问题 4：CORS 错误
 
