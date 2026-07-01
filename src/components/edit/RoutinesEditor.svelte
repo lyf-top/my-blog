@@ -299,7 +299,7 @@
     mountTo=".page-header-toolbar-slot"
     {saving} {hasChanges}
     on:modeChange={(e) => handleModeChange(e)}
-    on:add={handleAdd} on:save={handleSave} on:saveDraft={() => handleSaveDraft()} on:cancel={handleCancel}
+    on:add={handleAdd} on:submit={handleSave} on:saveDraft={() => handleSaveDraft()} on:cancel={handleCancel}
   />
 </div>
 

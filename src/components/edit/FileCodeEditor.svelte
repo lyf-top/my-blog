@@ -279,4 +279,21 @@
 		background: #0d0d18;
 		color: #e5e7eb;
 	}
+
+	@media (max-width: 768px) {
+		.code-textarea {
+			min-height: 300px;
+			font-size: 12px;
+			padding: 12px;
+		}
+		.editor-info {
+			flex-wrap: wrap;
+			padding: 8px 12px;
+		}
+		.editor-hint {
+			margin-left: 0;
+			width: 100%;
+			margin-top: 4px;
+		}
+	}
 </style>

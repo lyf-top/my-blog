@@ -501,7 +501,7 @@
 		{hasChanges}
 		showAddButton={false}
 		on:modeChange={(e) => handleModeChange(e)}
-		on:save={() => handleSave()}
+		on:submit={() => handleSave()}
 		on:saveDraft={() => handleSaveDraft()}
 		on:cancel={() => handleCancel()}
 	/>

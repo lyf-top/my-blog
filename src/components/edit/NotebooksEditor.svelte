@@ -259,7 +259,7 @@
     mountTo=".page-header-toolbar-slot"
     {saving} {hasChanges}
     on:modeChange={(e) => handleModeChange(e)}
-    on:add={handleAdd} on:save={handleSave} on:saveDraft={() => handleSaveDraft()} on:cancel={handleCancel}
+    on:add={handleAdd} on:submit={handleSave} on:saveDraft={() => handleSaveDraft()} on:cancel={handleCancel}
   />
 </div>
 
@@ -398,4 +398,11 @@
   .nb-btn-restore { padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid #22c55e; background: transparent; color: #22c55e; transition: all 0.15s; font-family: inherit; }
   .nb-btn-restore:hover { background: #22c55e; color: white; }
   .nb-empty { grid-column: 1 / -1; text-align: center; padding: 48px 20px; color: var(--content-meta,#9ca3af); font-size: 14px; border-radius: var(--radius-3xl); border: 2px dashed var(--line-divider); }
+  @media (max-width: 768px) {
+    .nb-edit-grid { grid-template-columns: 1fr; gap: 1rem; }
+    .nb-card-actions { opacity: 1; }
+    .nb-card-form { padding: 14px; }
+    .nb-card-text { padding: 1rem 1rem 0.5rem; }
+    .nb-card-footer { padding: 0.6rem 1rem; }
+  }
 </style>

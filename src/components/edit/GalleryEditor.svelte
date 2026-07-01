@@ -310,7 +310,7 @@
 		{hasChanges}
 		on:modeChange={(e) => handleModeChange(e)}
 		on:add={() => handleAdd()}
-		on:save={() => handleSave()}
+		on:submit={() => handleSave()}
 		on:saveDraft={() => handleSaveDraft()}
 		on:cancel={() => handleCancel()}
 	/>
