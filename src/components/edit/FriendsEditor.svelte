@@ -121,8 +121,9 @@
 					else if (originalContent[idx] === "]") depth--;
 					if (depth > 0) idx++;
 				}
-				// 替换数组部分（从 [ 到 ]）
-				return originalContent.substring(0, bracketStart) + " " + newArrayContent + originalContent.substring(idx + 1);
+				// 替换数组内容（保留原始的 [ 和 ]）
+				const innerContent = entries.join("\n");
+				return originalContent.substring(0, bracketStart) + "\n" + innerContent + "\n\t]" + originalContent.substring(idx + 1);
 			}
 		}
 
