@@ -16,7 +16,8 @@ export const sponsorConfig: SponsorConfig = {
 	methods: [
 		{
 			name: "爱发电",
-			enabled: false,
+			link: "https://ifdian.net/a/fqzlr",
+			enabled: true,
 		},
 		{
 			name: "微信支付",
