@@ -162,26 +162,41 @@
 	}
 
 	// ========== Markdown 转换工具 ==========
+	// YAML 字符串安全转义（加引号防止数字/布尔值被误解析）
+	function yamlStr(val: string): string {
+		return `"${val.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+	}
+
+	// 去掉 YAML 双引号包裹
+	function unquoteYaml(val: string): string {
+		if (!val) return val;
+		const trimmed = val.trim();
+		if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+			return trimmed.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+		}
+		return trimmed;
+	}
+
 	/**
 	 * 将 MomentItem 转换为 Markdown 文件内容
 	 */
 	function momentToMarkdown(m: MomentItem, filename: string): string {
 		const frontmatter = [
 			'---',
-			`author: ${m.author || DEFAULT_AUTHOR}`,
-			`avatar: ${m.avatar || DEFAULT_AVATAR}`,
+			`author: ${yamlStr(m.author || DEFAULT_AUTHOR)}`,
+			`avatar: ${yamlStr(m.avatar || DEFAULT_AVATAR)}`,
 			`published: ${new Date(m.published).toISOString().split('T')[0]}`, // YYYY-MM-DD
 		];
 
 		if (m.tags && m.tags.length > 0) {
 			frontmatter.push('tags:');
 			for (const tag of m.tags) {
-				frontmatter.push(`  - ${tag}`);
+				frontmatter.push(`  - ${yamlStr(tag)}`);
 			}
 		}
 
 		if (m.location) {
-			frontmatter.push(`location: ${m.location}`);
+			frontmatter.push(`location: ${yamlStr(m.location)}`);
 		}
 
 		if (m.pinned) {
@@ -208,10 +223,10 @@
 			const body = fmMatch[2].trim();
 
 			// 解析 Frontmatter
-			const author = fmContent.match(/^author:\s*(.+)$/m)?.[1]?.trim() || DEFAULT_AUTHOR;
-			const avatar = fmContent.match(/^avatar:\s*(.+)$/m)?.[1]?.trim() || DEFAULT_AVATAR;
+			const author = unquoteYaml(fmContent.match(/^author:\s*(.+)$/m)?.[1] || '') || DEFAULT_AUTHOR;
+			const avatar = unquoteYaml(fmContent.match(/^avatar:\s*(.+)$/m)?.[1] || '') || DEFAULT_AVATAR;
 			const publishedStr = fmContent.match(/^published:\s*(.+)$/m)?.[1]?.trim();
-			const location = fmContent.match(/^location:\s*(.+)$/m)?.[1]?.trim();
+			const location = unquoteYaml(fmContent.match(/^location:\s*(.+)$/m)?.[1] || '') || undefined;
 			const pinned = fmContent.match(/^pinned:\s*true$/m) !== null;
 
 			// 解析 tags（多行格式）
@@ -221,7 +236,7 @@
 				const tagLines = tagsMatch[1].match(/-\s+(.+)/g);
 				if (tagLines) {
 					for (const line of tagLines) {
-						const tag = line.replace(/^-\s+/, '').trim();
+						const tag = unquoteYaml(line.replace(/^-\s+/, ''));
 						if (tag) tags.push(tag);
 					}
 				}
