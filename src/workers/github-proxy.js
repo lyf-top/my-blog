@@ -221,6 +221,22 @@ export async function handleGithubProxy(request, env) {
 		}
 		const httpMethod = (method || request.method).toUpperCase();
 
+		// ======= 预览环境保护：禁止非生产环境写入 master 分支 =======
+		if (env.VERCEL_ENV && env.VERCEL_ENV !== "production") {
+			const targetBranch = reqBody?.branch || "";
+			const deployBranch = env.VERCEL_GIT_COMMIT_REF || "";
+			// 如果写入目标是 master，或者没有指定分支（回退到 master），则拒绝
+			if (targetBranch === "master" || (!targetBranch && deployBranch !== "master")) {
+				console.warn(`[PROXY GUARD] Blocked write to master from ${env.VERCEL_ENV} environment (deploy branch: ${deployBranch})`);
+				return jsonResponse({
+					error: "Preview environment cannot write to master branch",
+					blocked: true,
+					deployBranch,
+					targetBranch: targetBranch || "master (default)",
+				}, 403);
+			}
+		}
+
 		// 如果客户端没有 Authorization，且服务端有完整凭据，使用服务端认证
 		const hasClientAuth = headers.Authorization || headers.authorization;
 		if (!hasClientAuth && env && env.GH_APP_ID && env.GH_PRIVATE_KEY) {

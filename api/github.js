@@ -11,6 +11,8 @@ export default async function handler(request) {
 		GH_PRIVATE_KEY: process.env.GH_PRIVATE_KEY || "",
 		GH_USER: process.env.GH_USER || "",
 		GH_REPO: process.env.GH_REPO || "",
+		VERCEL_ENV: process.env.VERCEL_ENV || "development",
+		VERCEL_GIT_COMMIT_REF: process.env.VERCEL_GIT_COMMIT_REF || "master",
 	};
 	return handleGithubProxy(request, env);
 }
