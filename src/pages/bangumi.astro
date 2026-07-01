@@ -130,6 +130,22 @@ mappedData.sort((a, b) => {
 	return dateB - dateA;
 });
 
+// 转换为 BangumiEditor 可用的初始数据（仅动漫分类）
+const bangumiInitialItems = customBangumi
+	.filter((item) => item.data.category === "anime")
+	.map((item) => ({
+		id: item.id,
+		title: item.data.title,
+		name_cn: item.data.name_cn || item.data.title,
+		category: "anime",
+		status: item.data.status,
+		score: item.data.score || 0,
+		image: typeof item.data.image === "string" ? item.data.image : item.data.image.src,
+		tags: item.data.tags || [],
+		comment: item.data.comment || "",
+		updated_at: item.data.published?.toISOString() || new Date().toISOString(),
+	}));
+
 const bangumiData: Record<string, UserSubjectCollection[]> = {};
 const tabs: Array<{ id: string; name: string; count: number }> = [];
 
@@ -179,7 +195,13 @@ const activeTab = tabs[0]?.id || "anime";
 
 			<!-- 番剧编辑器（编辑按钮、外部数据加载） -->
 			<div data-no-swup>
-				<BangumiEditor client:only />
+				<BangumiEditor
+					client:only
+					defaultCategory="anime"
+					skipDomCollect={true}
+					customPageName="番剧"
+					initialItems={bangumiInitialItems}
+				/>
 			</div>
 
 			<!-- Tab navigation and content -->

@@ -60,7 +60,7 @@
 		setOriginalContent: (v) => (originalItems = JSON.parse(v)),
 		getCommitMsg: (isEdit) => isEdit ? `chore: update bangumi` : `chore: create bangumi`,
 		onSubmitted: () => {
-			setTimeout(() => window.location.reload(), 1200);
+			waitForDeployAndReload();
 		},
 	});
 
@@ -151,7 +151,9 @@
 				});
 
 				const href = link?.getAttribute("href") || "";
-				const id = href ? `local-${btoa(unescape(encodeURIComponent(href))).replace(/[^a-zA-Z0-9]/g, "").slice(0, 16)}` : `local-${category}-${idx}`;
+				// 用 href + title 生成唯一 ID，避免同链接的多个条目 ID 重复
+				const rawId = href ? `${href}#${title}` : `${category}-${idx}`;
+				const id = `local-${btoa(unescape(encodeURIComponent(rawId))).replace(/[^a-zA-Z0-9]/g, "").slice(0, 20)}`;
 
 				collected.push({
 					id,
@@ -382,6 +384,24 @@
 		}));
 		items = cleanData;
 		drafts.saveToDrafts();
+	}
+
+	/** 等待 Vercel 新部署上线后刷新页面 */
+	function waitForDeployAndReload() {
+		const startTime = Date.now();
+		const waitSeconds = 90;
+		const tickInterval = 10;
+		function tick() {
+			const elapsed = Math.round((Date.now() - startTime) / 1000);
+			if (elapsed >= waitSeconds) {
+				showToast("部署完成，正在刷新...", "success");
+				window.location.reload();
+			} else {
+				showToast(`等待 Vercel 部署中... (${elapsed}s / ${waitSeconds}s)`, "info");
+				setTimeout(tick, tickInterval * 1000);
+			}
+		}
+		setTimeout(tick, 15 * 1000);
 	}
 
 	async function handleSubmit() {
