@@ -182,7 +182,11 @@
   function buildIndexJson(n: NotebookItem): string {
     const obj: Record<string, string> = { name: n.name };
     if (n.summary) obj.summary = n.summary;
-    if (n.cover) obj.cover = n.cover;
+    // 只保存用户明确设置的 cover（外部 URL），不保存 DOM 收集的 Astro 处理后 URL
+    const orig = originalNotebooks.find(o => o.folderName === n.folderName && !o._draft);
+    const origCover = orig?.cover || "";
+    const coverToSave = n.cover !== origCover ? n.cover : origCover;
+    if (coverToSave && isExternalUrl(coverToSave)) obj.cover = coverToSave;
     return JSON.stringify(obj, null, "\t") + "\n";
   }
 
@@ -195,16 +199,45 @@
     if (draft?.notebooks) { notebooks = draft.notebooks; await handleSave(); if (!saving) deleteDraft("notebooks"); }
   }
 
+  function isModified(n: NotebookItem): boolean {
+    const orig = originalNotebooks.find(o => o.folderName === n.folderName && !o._draft);
+    if (!orig) return true; // 新增的或找不到原始数据
+    // 只比较用户可编辑的字段（name, summary），cover 从 DOM 收集的是 Astro 处理后的 URL，不应参与比较
+    return n.name !== orig.name || n.summary !== orig.summary;
+  }
+
+  /** 等待 Vercel 新部署上线后刷新页面 */
+  function waitForDeployAndReload() {
+    const startTime = Date.now();
+    const waitSeconds = 90; // Vercel 部署通常需要 60-90 秒
+    const tickInterval = 10; // 每 10 秒更新提示
+
+    function tick() {
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      if (elapsed >= waitSeconds) {
+        showToast("部署完成，正在刷新...", "success");
+        window.location.reload();
+      } else {
+        showToast(`等待 Vercel 部署中... (${elapsed}s / ${waitSeconds}s)`, "info");
+        setTimeout(tick, tickInterval * 1000);
+      }
+    }
+    // 先等 15 秒再开始检查
+    setTimeout(tick, 15 * 1000);
+  }
+
   async function handleSave() {
     if (!hasValidToken()) { showToast("GitHub 代理未配置，请联系管理员", "warning"); return; }
     saving = true;
     try {
       let allOk = true;
+      let savedCount = 0;
       for (let i = 0; i < notebooks.length; i++) {
         const n = notebooks[i];
-        const filePath = `src/content/life/notebooks/${n.folderName}/_index.json`;
 
+        // 跳过删除标记（删除单独处理）
         if (n._deleted) {
+          const filePath = `src/content/life/notebooks/${n.folderName}/_index.json`;
           const file = await getRepoFile(filePath, repoConfig);
           if (file && file.sha) {
             const ok = await deleteRepoFile(filePath, file.sha, `chore(notebooks): remove ${n.folderName} index`, repoConfig);
@@ -213,34 +246,44 @@
           continue;
         }
 
-        const content = buildIndexJson(n);
-        let folderName = n.folderName;
-
+        // 新增的笔记本
         if (n._draft) {
-          folderName = "notebook-" + Date.now().toString(36) + "-" + slugify(n.name).slice(0, 20);
+          const folderName = "notebook-" + Date.now().toString(36) + "-" + slugify(n.name).slice(0, 20);
           const folderPath = `src/content/life/notebooks/${folderName}/`;
-          const readmePath = folderPath + "README.md";
-          const indexPath = folderPath + "_index.json";
-          const okIdx = await createRepoFile(indexPath, content, `chore(notebooks): add ${folderName} notebook`, repoConfig);
-          const okReadme = await createRepoFile(readmePath, `# ${n.name}\n\n${n.summary}\n`, `chore(notebooks): init ${folderName} readme`, repoConfig);
+          const content = buildIndexJson(n);
+          const okIdx = await createRepoFile(folderPath + "_index.json", content, `chore(notebooks): add ${folderName} notebook`, repoConfig);
+          const okReadme = await createRepoFile(folderPath + "README.md", `# ${n.name}\n\n${n.summary}\n`, `chore(notebooks): init ${folderName} readme`, repoConfig);
           if (!okIdx || !okReadme) allOk = false;
+          else savedCount++;
+          continue;
+        }
+
+        // 已有笔记本：只保存实际修改过的，避免未修改的被 DOM 收集数据覆盖
+        if (!isModified(n)) continue;
+
+        const filePath = `src/content/life/notebooks/${n.folderName}/_index.json`;
+        const content = buildIndexJson(n);
+        console.log('[NotebooksEditor] Saving:', n.folderName, '\nContent:', content, '\nOriginal:', JSON.stringify(originalNotebooks.find(o => o.folderName === n.folderName)));
+        const file = await getRepoFile(filePath, repoConfig);
+        const sha = file?.sha || "";
+        console.log('[NotebooksEditor] SHA:', sha?.slice(0, 8), 'File content:', file?.content ? atob(file.content).slice(0, 200) : 'N/A');
+        if (sha) {
+          const ok = await updateRepoFile(filePath, content, sha, `chore(notebooks): update ${n.folderName}`, repoConfig);
+          if (!ok) allOk = false;
+          else savedCount++;
         } else {
-          let sha = "";
-          const file = await getRepoFile(filePath, repoConfig);
-          if (file) sha = file.sha;
-          if (sha) {
-            const ok = await updateRepoFile(filePath, content, sha, `chore(notebooks): update ${folderName}`, repoConfig);
-            if (!ok) allOk = false;
-          } else {
-            const ok = await createRepoFile(filePath, content, `chore(notebooks): create ${folderName} index`, repoConfig);
-            if (!ok) allOk = false;
-          }
+          const ok = await createRepoFile(filePath, content, `chore(notebooks): create ${n.folderName} index`, repoConfig);
+          if (!ok) allOk = false;
+          else savedCount++;
         }
       }
       if (allOk) {
-        showToast("保存成功！页面将刷新以应用更改", "success");
+        showToast(`保存成功！等待 Vercel 重新部署后自动刷新...`, "success");
         hasChanges = false;
-        setTimeout(() => window.location.reload(), 1200);
+        // 更新 originalNotebooks 为当前状态，避免下次保存时误判
+        originalNotebooks = deepClone(notebooks.map(({ _draft, _deleted, ...rest }) => ({ ...rest, _draft: false, _deleted: false })));
+        // 等待 Vercel 新部署上线后再刷新（轮询检测部署变化）
+        waitForDeployAndReload();
       } else { showToast("部分操作失败，请检查 GitHub App 权限配置", "error"); }
     } catch (err) { showToast("保存出错：" + (err as Error).message, "error"); }
     saving = false;
