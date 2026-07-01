@@ -74,13 +74,33 @@
 		real: "影视",
 	};
 
-	const categoryList = [
-		{ id: "anime", name: "动漫" },
-		{ id: "book", name: "书籍" },
-		{ id: "game", name: "游戏" },
-		{ id: "music", name: "音乐" },
-		{ id: "real", name: "影视" },
-	];
+	// 根据 customPageName 动态生成分类列表
+	const categoryList = (() => {
+		if (customPageName === "影视游戏") {
+			// 影视游戏页面：使用 subcategory 细分
+			return [
+				{ id: "movie", name: "电影" },
+				{ id: "tv", name: "剧集" },
+				{ id: "anime", name: "动漫" },
+				{ id: "documentary", name: "纪录片" },
+				{ id: "game", name: "游戏" },
+			];
+		} else if (customPageName === "书架") {
+			// 书架页面：只显示 book
+			return [
+				{ id: "book", name: "书籍" },
+			];
+		} else {
+			// 默认（番剧页面）：显示所有分类
+			return [
+				{ id: "anime", name: "动漫" },
+				{ id: "book", name: "书籍" },
+				{ id: "game", name: "游戏" },
+				{ id: "music", name: "音乐" },
+				{ id: "real", name: "影视" },
+			];
+		}
+	})();
 
 	const tabs = [
 		{ id: "all", name: "全部" },
@@ -185,11 +205,24 @@
 			const existing = await getRepoFile("public/bangumi.json");
 			if (existing && existing.content) {
 				const repoItems: BangumiItem[] = JSON.parse(existing.content);
-				// 只合并与当前页面分类匹配的条目，避免书架页显示电影数据等
-				const allowedCategories = new Set(initialItems.map((i) => i.category));
+				
+				// 判断条目是否属于当前页面
+				const isItemForCurrentPage = (item: BangumiItem): boolean => {
+					if (customPageName === "影视游戏") {
+						// 影视游戏页面：只保留 anime、game、real 分类
+						return ["anime", "game", "real"].includes(item.category);
+					} else if (customPageName === "书架") {
+						// 书架页面：只保留 book 分类
+						return item.category === "book";
+					} else {
+						// 默认（番剧页面）：保留所有分类
+						return true;
+					}
+				};
+				
 				for (const g of repoItems) {
 					// 如果当前页面有初始数据（skipDomCollect模式），只保留匹配分类的条目
-					if (allowedCategories.size > 0 && !allowedCategories.has(g.category)) continue;
+					if (initialItems.length > 0 && !isItemForCurrentPage(g)) continue;
 					// 用 id 匹配（而非 title|category），避免编辑标题后产生重复条目
 					const existingIdx = g.id ? items.findIndex((i) => i.id === g.id) : -1;
 					if (existingIdx >= 0) {
