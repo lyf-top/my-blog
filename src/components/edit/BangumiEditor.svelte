@@ -48,13 +48,14 @@ let gistLoaded = $state(false);
 let activeTab = $state(defaultCategory);
 let fileSha = $state<string | null>(null);
 
+const currentPageKey = customPageName === "书架"
+	? "books"
+	: customPageName === "影视游戏"
+		? "movies-games"
+		: "bangumi";
+
 const drafts = setupRepoDrafts({
-	pageKey:
-		customPageName === "书架"
-			? "books"
-			: customPageName === "影视游戏"
-				? "movies-games"
-				: "bangumi",
+	pageKey: currentPageKey,
 	pageName: customPageName,
 	getContent: () => JSON.stringify(items, null, 2),
 	setContent: (v) => (items = JSON.parse(v)),
@@ -599,7 +600,7 @@ function switchStatusTab(tabId: string) {
 <!-- 编辑工具栏 -->
 <div class="bangumi-edit-toolbar">
 	<EditToolbar
-		pageKey="bangumi"
+		pageKey={currentPageKey}
 		pageName={customPageName}
 		mountTo=".page-header-toolbar-slot"
 		{saving}
