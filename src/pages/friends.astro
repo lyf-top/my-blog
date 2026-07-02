@@ -108,6 +108,11 @@ const description =
 </MainGridLayout>
 
 <style>
+  /* 移除 EditToolbar 容器的 margin，确保按钮对齐 */
+  .page-header-toolbar-slot .edit-toolbar {
+    margin-bottom: 0 !important;
+  }
+
   /* 完全复制 EditToolbar 中 .edit-main-btn 的样式 */
   .edit-main-btn-style {
     display: inline-flex !important;
