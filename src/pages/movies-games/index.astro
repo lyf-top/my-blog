@@ -216,18 +216,37 @@ const activeTab = sections[0]?.tabKey || "all";
 
 // 转换为 BangumiEditor 可用的初始数据
 const subjectTypeToCategory: Record<number, string> = { 2: "anime", 4: "game", 6: "real" };
-const bangumiInitialItems = mgItems.map((item) => ({
-	id: String(item.subject_id || item.link),
-	title: item.subject.name,
-	name_cn: item.subject.name_cn || item.subject.name,
-	category: subjectTypeToCategory[item.subject_type] || "anime",
-	status: item.type,
-	score: item.rate || 0,
-	image: item.subject.images?.medium || "",
-	tags: item.tags || [],
-	comment: item.comment || "",
-	updated_at: item.updated_at,
-}));
+const bangumiInitialItems = mgItems.map((item) => {
+	// 根据 tags 确定正确的分类（与页面渲染逻辑一致）
+	let correctCategory = "movie"; // 默认电影
+	if (item.subject_type === 4) {
+		correctCategory = "game";
+	} else if (item._subcategory) {
+		correctCategory = item._subcategory;
+	} else {
+		const tags = item.tags || [];
+		if (tags.some((t: string) => t.includes("纪录"))) {
+			correctCategory = "documentary";
+		} else if (tags.some((t: string) => t.includes("动漫") || t.includes("动画"))) {
+			correctCategory = "anime";
+		} else if (tags.some((t: string) => t.includes("电视剧") || t.includes("剧集"))) {
+			correctCategory = "tv";
+		}
+	}
+
+	return {
+		id: String(item.subject_id || item.link),
+		title: item.subject.name,
+		name_cn: item.subject.name_cn || item.subject.name,
+		category: correctCategory,
+		status: item.type,
+		score: item.rate || 0,
+		image: item.subject.images?.medium || "",
+		tags: item.tags || [],
+		comment: item.comment || "",
+		updated_at: item.updated_at,
+	};
+});
 ---
 
 <MainGridLayout title={i18n(I18nKey.moviesGamesTitle)} description={i18n(I18nKey.moviesGamesSubtitle)}>
