@@ -10,6 +10,8 @@ import { i18n } from "@/i18n/translation";
 import MainGridLayout from "@/layouts/MainGridLayout.astro";
 import { formatDateI18nWithTime } from "@/utils/date-utils";
 import { removeFileExtension } from "@/utils/url-utils";
+import fs from "node:fs";
+import path from "node:path";
 
 if (!siteConfig.pages.books) {
 	return Astro.redirect("/404/");
@@ -18,6 +20,45 @@ if (!siteConfig.pages.books) {
 const buildTime = formatDateI18nWithTime(new Date());
 
 const customBangumi = await getCollection("bangumi");
+
+// 读取 bangumi.json 中编辑器保存的数据
+let repoBookMap = new Map<
+	string,
+	{
+		title?: string;
+		name_cn?: string;
+		status?: number;
+		score?: number;
+		tags?: string[];
+		comment?: string;
+		updated_at?: string;
+	}
+>();
+try {
+	const bangumiJsonPath = path.join(process.cwd(), "public", "bangumi.json");
+	if (fs.existsSync(bangumiJsonPath)) {
+		const repoItems: Array<{
+			id: string;
+			title?: string;
+			name_cn?: string;
+			status?: number;
+			score?: number;
+			tags?: string[];
+			comment?: string;
+			updated_at?: string;
+		}> = JSON.parse(fs.readFileSync(bangumiJsonPath, "utf-8"));
+		repoBookMap = new Map(
+			repoItems
+				.filter(
+					(r) =>
+						r.id && r.id !== "undefined" && r.id.startsWith("/bangumi/book/"),
+				)
+				.map((r) => [r.id, r]),
+		);
+	}
+} catch (e) {
+	console.error("[books] Failed to read bangumi.json:", e);
+}
 
 const bookItems = customBangumi
 	.filter((item) => item.data.category === "book")
@@ -40,8 +81,23 @@ const bookItems = customBangumi
 			link,
 			status: item.data.status,
 			score: item.data.score || 0,
+			_contentId: item.id,
 		};
 	});
+
+// 用编辑器保存的数据覆盖 bookItems
+for (let i = 0; i < bookItems.length; i++) {
+	const repoId = `/bangumi/${bookItems[i]._contentId}/`;
+	const repoItem = repoBookMap.get(repoId);
+	if (repoItem) {
+		bookItems[i] = {
+			...bookItems[i],
+			title: repoItem.title ?? bookItems[i].title,
+			status: repoItem.status ?? bookItems[i].status,
+			score: repoItem.score ?? bookItems[i].score,
+		};
+	}
+}
 
 const readingCount = bookItems.filter((b) => b.status === 3).length;
 const readCount = bookItems.filter((b) => b.status === 2).length;
@@ -51,17 +107,38 @@ const wishCount = bookItems.filter((b) => b.status === 1).length;
 const bangumiInitialItems = customBangumi
 	.filter((item) => item.data.category === "book")
 	.map((item) => ({
-		id: item.id,
+		id: `/bangumi/${item.id}/`,
 		title: item.data.title,
 		name_cn: item.data.name_cn || item.data.title,
 		category: "book",
 		status: item.data.status,
 		score: item.data.score || 0,
-		image: typeof item.data.image === "string" ? item.data.image : item.data.image.src,
+		image:
+			typeof item.data.image === "string"
+				? item.data.image
+				: item.data.image.src,
 		tags: item.data.tags || [],
 		comment: item.data.comment || "",
 		updated_at: item.data.published?.toISOString() || new Date().toISOString(),
 	}));
+
+// 用编辑器保存的数据覆盖 bangumiInitialItems
+for (let i = 0; i < bangumiInitialItems.length; i++) {
+	const item = bangumiInitialItems[i];
+	const repoItem = repoBookMap.get(item.id);
+	if (repoItem) {
+		bangumiInitialItems[i] = {
+			...item,
+			title: repoItem.title ?? item.title,
+			name_cn: repoItem.name_cn ?? item.name_cn,
+			status: repoItem.status ?? item.status,
+			score: repoItem.score ?? item.score,
+			tags: repoItem.tags ?? item.tags,
+			comment: repoItem.comment ?? item.comment,
+			updated_at: repoItem.updated_at ?? item.updated_at,
+		};
+	}
+}
 ---
 
 <MainGridLayout title={i18n(I18nKey.booksTitle)} description={i18n(I18nKey.booksSubtitle)}>

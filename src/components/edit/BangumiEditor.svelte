@@ -1,342 +1,362 @@
 <script lang="ts">
-	import { onMount } from "svelte";
-	import EditToolbar from "./EditToolbar.svelte";
-	import EditToast from "./EditToast.svelte";
-	import {
-		showToast,
-		genId,
-		deepClone,
-		ensureIconify,
-		getRepoFile,
-	} from "@/utils/editMode";
-	import { setupRepoDrafts } from "@/utils/draftHelpers";
-	import { bangumiEditConfig } from "@/config/editConfig";
+import { onMount } from "svelte";
+import EditToolbar from "./EditToolbar.svelte";
+import EditToast from "./EditToast.svelte";
+import {
+	showToast,
+	genId,
+	deepClone,
+	ensureIconify,
+	getRepoFile,
+} from "@/utils/editMode";
+import { setupRepoDrafts } from "@/utils/draftHelpers";
+import { bangumiEditConfig } from "@/config/editConfig";
 
-	interface BangumiItem {
-		id: string;
-		title: string;
-		name_cn: string;
-		category: string; // anime/book/game/music
-		status: number; // 1=想看 2=看过 3=在看 4=搁置 5=抛弃
-		score: number;
-		image: string;
-		tags: string[];
-		comment: string;
-		updated_at: string;
-		_draft?: boolean;
-		_local?: boolean;
+interface BangumiItem {
+	id: string;
+	title: string;
+	name_cn: string;
+	category: string; // anime/book/game/music
+	status: number; // 1=想看 2=看过 3=在看 4=搁置 5=抛弃
+	score: number;
+	image: string;
+	tags: string[];
+	comment: string;
+	updated_at: string;
+	_draft?: boolean;
+	_local?: boolean;
+}
+
+let {
+	defaultCategory = "all",
+	skipDomCollect = false,
+	customPageName = "番剧",
+	initialItems = [],
+}: {
+	defaultCategory?: string;
+	skipDomCollect?: boolean;
+	customPageName?: string;
+	initialItems?: BangumiItem[];
+} = $props();
+
+let editMode = $state(false);
+let saving = $state(false);
+let items = $state<BangumiItem[]>([]);
+let originalItems = $state<BangumiItem[]>([]);
+let editingIndex = $state(-1);
+let gistLoaded = $state(false);
+let activeTab = $state(defaultCategory);
+let fileSha = $state<string | null>(null);
+
+const drafts = setupRepoDrafts({
+	pageKey:
+		customPageName === "书架"
+			? "books"
+			: customPageName === "影视游戏"
+				? "movies-games"
+				: "bangumi",
+	pageName: customPageName,
+	getContent: () => JSON.stringify(items, null, 2),
+	setContent: (v) => (items = JSON.parse(v)),
+	getPath: () => "public/bangumi.json",
+	getSha: () => fileSha,
+	setSha: (v) => (fileSha = v),
+	getOriginalContent: () => JSON.stringify(originalItems, null, 2),
+	setOriginalContent: (v) => (originalItems = JSON.parse(v)),
+	getCommitMsg: (isEdit) =>
+		isEdit ? `chore: update bangumi` : `chore: create bangumi`,
+	onSubmitted: () => {
+		waitForDeployAndReload();
+	},
+});
+
+let hasChanges = $derived(drafts.hasLocalChanges());
+
+const categoryMap: Record<string, string> = {
+	anime: "动漫",
+	book: "书籍",
+	game: "游戏",
+	music: "音乐",
+	real: "影视",
+};
+
+// 根据 customPageName 动态生成分类列表
+const categoryList = (() => {
+	if (customPageName === "影视游戏") {
+		// 影视游戏页面：使用 subcategory 细分
+		return [
+			{ id: "movie", name: "电影" },
+			{ id: "tv", name: "剧集" },
+			{ id: "anime", name: "动漫" },
+			{ id: "documentary", name: "纪录片" },
+			{ id: "game", name: "游戏" },
+		];
+	} else if (customPageName === "书架") {
+		// 书架页面：只显示 book
+		return [{ id: "book", name: "书籍" }];
+	} else {
+		// 默认（番剧页面）：显示所有分类
+		return [
+			{ id: "anime", name: "动漫" },
+			{ id: "book", name: "书籍" },
+			{ id: "game", name: "游戏" },
+			{ id: "music", name: "音乐" },
+			{ id: "real", name: "影视" },
+		];
+	}
+})();
+
+// 获取条目的 subcategory（仅影视游戏页面使用）
+// 与前端 SSR 渲染逻辑完全一致
+function getItemSubcategory(item: BangumiItem): string {
+	// 优先使用 _subcategory 字段（如果有）
+	if ((item as any)._subcategory) return (item as any)._subcategory;
+
+	// game 分类保持为 game
+	if (item.category === "game") return "game";
+
+	// real 分类根据 tags 推断 subcategory
+	if (item.category !== "real") return item.category;
+
+	const tags = item.tags || [];
+	if (tags.some((t) => t.includes("纪录"))) return "documentary";
+	if (tags.some((t) => t.includes("动漫") || t.includes("动画")))
+		return "anime";
+	if (tags.some((t) => t.includes("电视剧") || t.includes("剧集"))) return "tv";
+	return "movie"; // 默认为电影
+}
+
+const tabs = [{ id: "all", name: "全部" }, ...categoryList];
+
+// 影视游戏页面支持第二排状态筛选
+const statusTabs =
+	customPageName === "影视游戏"
+		? [
+				{ id: "all", name: "全部" },
+				{ id: "2", name: "看过" },
+				{ id: "3", name: "在看" },
+				{ id: "1", name: "想看" },
+				{ id: "4", name: "搁置" },
+				{ id: "5", name: "抛弃" },
+			]
+		: null;
+
+let activeStatusTab = $state("all");
+
+// 根据分类和状态双重筛选
+let filteredItems = $derived.by(() => {
+	let result = items;
+
+	// 影视游戏页面：按 subcategory 筛选
+	if (customPageName === "影视游戏" && activeTab !== "all") {
+		result = result.filter((i) => getItemSubcategory(i) === activeTab);
+	} else if (activeTab !== "all") {
+		// 其他页面：按 category 筛选
+		result = result.filter((i) => i.category === activeTab);
 	}
 
-	let {
-		defaultCategory = "all",
-		skipDomCollect = false,
-		customPageName = "番剧",
-		initialItems = [],
-	}: {
-		defaultCategory?: string;
-		skipDomCollect?: boolean;
-		customPageName?: string;
-		initialItems?: BangumiItem[];
-	} = $props();
-
-	let editMode = $state(false);
-	let saving = $state(false);
-	let items = $state<BangumiItem[]>([]);
-	let originalItems = $state<BangumiItem[]>([]);
-	let editingIndex = $state(-1);
-	let gistLoaded = $state(false);
-	let activeTab = $state(defaultCategory);
-	let fileSha = $state<string | null>(null);
-
-	const drafts = setupRepoDrafts({
-		pageKey: customPageName === "书架" ? "books" : customPageName === "影视游戏" ? "movies-games" : "bangumi",
-		pageName: customPageName,
-		getContent: () => JSON.stringify(items, null, 2),
-		setContent: (v) => (items = JSON.parse(v)),
-		getPath: () => "public/bangumi.json",
-		getSha: () => fileSha,
-		setSha: (v) => (fileSha = v),
-		getOriginalContent: () => JSON.stringify(originalItems, null, 2),
-		setOriginalContent: (v) => (originalItems = JSON.parse(v)),
-		getCommitMsg: (isEdit) => isEdit ? `chore: update bangumi` : `chore: create bangumi`,
-		onSubmitted: () => {
-			waitForDeployAndReload();
-		},
-	});
-
-	let hasChanges = $derived(drafts.hasLocalChanges());
-
-	const categoryMap: Record<string, string> = {
-		anime: "动漫",
-		book: "书籍",
-		game: "游戏",
-		music: "音乐",
-		real: "影视",
-	};
-
-	// 根据 customPageName 动态生成分类列表
-	const categoryList = (() => {
-		if (customPageName === "影视游戏") {
-			// 影视游戏页面：使用 subcategory 细分
-			return [
-				{ id: "movie", name: "电影" },
-				{ id: "tv", name: "剧集" },
-				{ id: "anime", name: "动漫" },
-				{ id: "documentary", name: "纪录片" },
-				{ id: "game", name: "游戏" },
-			];
-		} else if (customPageName === "书架") {
-			// 书架页面：只显示 book
-			return [
-				{ id: "book", name: "书籍" },
-			];
-		} else {
-			// 默认（番剧页面）：显示所有分类
-			return [
-				{ id: "anime", name: "动漫" },
-				{ id: "book", name: "书籍" },
-				{ id: "game", name: "游戏" },
-				{ id: "music", name: "音乐" },
-				{ id: "real", name: "影视" },
-			];
-		}
-	})();
-
-	// 获取条目的 subcategory（仅影视游戏页面使用）
-	// 与前端 SSR 渲染逻辑完全一致
-	function getItemSubcategory(item: BangumiItem): string {
-		// 优先使用 _subcategory 字段（如果有）
-		if ((item as any)._subcategory) return (item as any)._subcategory;
-		
-		// game 分类保持为 game
-		if (item.category === "game") return "game";
-		
-		// real 分类根据 tags 推断 subcategory
-		if (item.category !== "real") return item.category;
-		
-		const tags = item.tags || [];
-		if (tags.some((t) => t.includes("纪录"))) return "documentary";
-		if (tags.some((t) => t.includes("动漫") || t.includes("动画"))) return "anime";
-		if (tags.some((t) => t.includes("电视剧") || t.includes("剧集"))) return "tv";
-		return "movie"; // 默认为电影
+	// 状态筛选
+	if (activeStatusTab !== "all") {
+		result = result.filter((i) => i.status === Number(activeStatusTab));
 	}
 
-	const tabs = [
-		{ id: "all", name: "全部" },
-		...categoryList,
-	];
+	return result;
+});
 
-	// 影视游戏页面支持第二排状态筛选
-	const statusTabs = customPageName === "影视游戏" ? [
-		{ id: "all", name: "全部" },
-		{ id: "2", name: "看过" },
-		{ id: "3", name: "在看" },
-		{ id: "1", name: "想看" },
-		{ id: "4", name: "搁置" },
-		{ id: "5", name: "抛弃" },
-	] : null;
+const statusMap: Record<number, { name: string; color: string }> = {
+	1: { name: "想看", color: "#3b82f6" },
+	2: { name: "看过", color: "#10b981" },
+	3: { name: "在看", color: "#f59e0b" },
+	4: { name: "搁置", color: "#6b7280" },
+	5: { name: "抛弃", color: "#ef4444" },
+};
 
-	let activeStatusTab = $state("all");
+const statusStrToNum: Record<string, number> = {
+	wish: 1,
+	collect: 2,
+	doing: 3,
+	on_hold: 4,
+	dropped: 5,
+};
 
-	// 根据分类和状态双重筛选
-	let filteredItems = $derived.by(() => {
-		let result = items;
-		
-		// 影视游戏页面：按 subcategory 筛选
-		if (customPageName === "影视游戏" && activeTab !== "all") {
-			result = result.filter((i) => getItemSubcategory(i) === activeTab);
-		} else if (activeTab !== "all") {
-			// 其他页面：按 category 筛选
-			result = result.filter((i) => i.category === activeTab);
-		}
-		
-		// 状态筛选
-		if (activeStatusTab !== "all") {
-			result = result.filter((i) => i.status === Number(activeStatusTab));
-		}
-		
-		return result;
-	});
+onMount(() => {
+	ensureIconify();
+	if (initialItems.length > 0) {
+		// 使用页面直接传入的初始数据
+		items = initialItems.map((item) => ({ ...item, _local: true }));
+		originalItems = deepClone(items);
+	} else if (!skipDomCollect) {
+		collectFromDOM();
+	}
+	loadGistData();
+});
 
-	const statusMap: Record<number, { name: string; color: string }> = {
-		1: { name: "想看", color: "#3b82f6" },
-		2: { name: "看过", color: "#10b981" },
-		3: { name: "在看", color: "#f59e0b" },
-		4: { name: "搁置", color: "#6b7280" },
-		5: { name: "抛弃", color: "#ef4444" },
-	};
+// 从 DOM 收集 SSR 渲染的本地番剧条目
+function collectFromDOM() {
+	const collected: BangumiItem[] = [];
+	const sections = document.querySelectorAll("[data-section]");
+	sections.forEach((sectionEl) => {
+		const section = sectionEl as HTMLElement;
+		const category = section.dataset.section;
+		if (!category || !categoryMap[category]) return;
+		const grid = section.querySelector(".bangumi-grid");
+		if (!grid) return;
+		grid.querySelectorAll(".bangumi-item").forEach((itemEl, idx) => {
+			const card = itemEl as HTMLElement;
+			const link = card.querySelector<HTMLAnchorElement>(".bm-card");
+			const img = card.querySelector<HTMLImageElement>(".bm-img");
+			const titleEl = card.querySelector(".bm-title");
+			const scoreEl = card.querySelector(".bm-score");
+			const commentEl = card.querySelector(".bm-comment");
+			const tagEls = card.querySelectorAll(".bm-tag");
+			const statusStr = card.dataset.itemStatus || "wish";
 
-	const statusStrToNum: Record<string, number> = {
-		wish: 1,
-		collect: 2,
-		doing: 3,
-		on_hold: 4,
-		dropped: 5,
-	};
+			const title = titleEl?.textContent?.trim() || "";
+			if (!title) return;
 
-	onMount(() => {
-		ensureIconify();
-		if (initialItems.length > 0) {
-			// 使用页面直接传入的初始数据
-			items = initialItems.map((item) => ({ ...item, _local: true }));
-			originalItems = deepClone(items);
-		} else if (!skipDomCollect) {
-			collectFromDOM();
-		}
-		loadGistData();
-	});
+			let score = 0;
+			if (scoreEl) {
+				const scoreText =
+					scoreEl.textContent?.trim().replace(/[^0-9.]/g, "") || "0";
+				score = parseFloat(scoreText) || 0;
+			}
 
-	// 从 DOM 收集 SSR 渲染的本地番剧条目
-	function collectFromDOM() {
-		const collected: BangumiItem[] = [];
-		const sections = document.querySelectorAll("[data-section]");
-		sections.forEach((sectionEl) => {
-			const section = sectionEl as HTMLElement;
-			const category = section.dataset.section;
-			if (!category || !categoryMap[category]) return;
-			const grid = section.querySelector(".bangumi-grid");
-			if (!grid) return;
-			grid.querySelectorAll(".bangumi-item").forEach((itemEl, idx) => {
-				const card = itemEl as HTMLElement;
-				const link = card.querySelector<HTMLAnchorElement>(".bm-card");
-				const img = card.querySelector<HTMLImageElement>(".bm-img");
-				const titleEl = card.querySelector(".bm-title");
-				const scoreEl = card.querySelector(".bm-score");
-				const commentEl = card.querySelector(".bm-comment");
-				const tagEls = card.querySelectorAll(".bm-tag");
-				const statusStr = card.dataset.itemStatus || "wish";
+			const tags: string[] = [];
+			tagEls.forEach((t) => {
+				const text = t.textContent?.trim();
+				if (text) tags.push(text);
+			});
 
-				const title = titleEl?.textContent?.trim() || "";
-				if (!title) return;
+			const href = link?.getAttribute("href") || "";
+			// 用 href + title 生成唯一 ID，避免同链接的多个条目 ID 重复
+			const rawId = href ? `${href}#${title}` : `${category}-${idx}`;
+			const id = `local-${btoa(unescape(encodeURIComponent(rawId)))
+				.replace(/[^a-zA-Z0-9]/g, "")
+				.slice(0, 20)}`;
 
-				let score = 0;
-				if (scoreEl) {
-					const scoreText = scoreEl.textContent?.trim().replace(/[^0-9.]/g, "") || "0";
-					score = parseFloat(scoreText) || 0;
-				}
-
-				const tags: string[] = [];
-				tagEls.forEach((t) => {
-					const text = t.textContent?.trim();
-					if (text) tags.push(text);
-				});
-
-				const href = link?.getAttribute("href") || "";
-				// 用 href + title 生成唯一 ID，避免同链接的多个条目 ID 重复
-				const rawId = href ? `${href}#${title}` : `${category}-${idx}`;
-				const id = `local-${btoa(unescape(encodeURIComponent(rawId))).replace(/[^a-zA-Z0-9]/g, "").slice(0, 20)}`;
-
-				collected.push({
-					id,
-					title,
-					name_cn: title,
-					category,
-					status: statusStrToNum[statusStr] || 1,
-					score,
-					image: img?.src || "",
-					tags,
-					comment: commentEl?.textContent?.trim() || "",
-					updated_at: new Date().toISOString(),
-					_local: true,
-				});
+			collected.push({
+				id,
+				title,
+				name_cn: title,
+				category,
+				status: statusStrToNum[statusStr] || 1,
+				score,
+				image: img?.src || "",
+				tags,
+				comment: commentEl?.textContent?.trim() || "",
+				updated_at: new Date().toISOString(),
+				_local: true,
 			});
 		});
-		items = collected;
-		originalItems = deepClone(collected);
-	}
+	});
+	items = collected;
+	originalItems = deepClone(collected);
+}
 
-	async function loadGistData() {
-		if (!bangumiEditConfig.gistId) {
-			gistLoaded = true;
-			renderExternalItems();
-			drafts.restoreFromDrafts();
-			return;
-		}
-		try {
-			const existing = await getRepoFile("public/bangumi.json");
-			if (existing && existing.content) {
-				const repoItems: BangumiItem[] = JSON.parse(existing.content);
-				
-				// 判断条目是否属于当前页面
-				const isItemForCurrentPage = (item: BangumiItem): boolean => {
-					if (customPageName === "影视游戏") {
-						// 影视游戏页面：只保留 anime、game、real 分类
-						return ["anime", "game", "real"].includes(item.category);
-					} else if (customPageName === "书架") {
-						// 书架页面：只保留 book 分类
-						return item.category === "book";
-					} else {
-						// 默认（番剧页面）：保留所有分类
-						return true;
-					}
-				};
-				
-				for (const g of repoItems) {
-					// 如果当前页面有初始数据（skipDomCollect模式），只保留匹配分类的条目
-					if (initialItems.length > 0 && !isItemForCurrentPage(g)) continue;
-					// 用 id 匹配（而非 title|category），避免编辑标题后产生重复条目
-					const existingIdx = g.id ? items.findIndex((i) => i.id === g.id) : -1;
-					if (existingIdx >= 0) {
-						items[existingIdx] = { ...g, _local: false };
-					} else {
-						items = [
-							...items,
-							{ ...g, id: g.id || genId("bgm"), _local: false },
-						];
-					}
-				}
-				sortItems();
-				originalItems = deepClone(items);
-			}
-		} catch (e) {
-			console.error("Failed to load repo bangumi:", e);
-		}
+async function loadGistData() {
+	if (!bangumiEditConfig.gistId) {
 		gistLoaded = true;
 		renderExternalItems();
 		drafts.restoreFromDrafts();
+		return;
 	}
+	try {
+		const existing = await getRepoFile("public/bangumi.json");
+		if (existing && existing.content) {
+			const repoItems: BangumiItem[] = JSON.parse(existing.content);
 
-	function sortItems() {
-		items = [...items].sort((a, b) => {
-			const da = new Date(a.updated_at).getTime();
-			const db = new Date(b.updated_at).getTime();
-			return db - da;
-		});
+			// 判断条目是否属于当前页面
+			const isItemForCurrentPage = (item: BangumiItem): boolean => {
+				if (customPageName === "影视游戏") {
+					// 影视游戏页面：保留 anime/game/real 及其子分类
+					return [
+						"anime",
+						"game",
+						"real",
+						"tv",
+						"movie",
+						"documentary",
+					].includes(item.category);
+				} else if (customPageName === "书架") {
+					// 书架页面：只保留 book 分类
+					return item.category === "book";
+				} else {
+					// 默认（番剧页面）：保留所有分类
+					return true;
+				}
+			};
+
+			for (const g of repoItems) {
+				// 如果当前页面有初始数据（skipDomCollect模式），只保留匹配分类的条目
+				if (initialItems.length > 0 && !isItemForCurrentPage(g)) continue;
+				// 用 id 匹配（而非 title|category），避免编辑标题后产生重复条目
+				const existingIdx = g.id ? items.findIndex((i) => i.id === g.id) : -1;
+				if (existingIdx >= 0) {
+					items[existingIdx] = { ...g, _local: false };
+				} else {
+					items = [...items, { ...g, id: g.id || genId("bgm"), _local: false }];
+				}
+			}
+			sortItems();
+			originalItems = deepClone(items);
+		}
+	} catch (e) {
+		console.error("Failed to load repo bangumi:", e);
 	}
+	gistLoaded = true;
+	renderExternalItems();
+	drafts.restoreFromDrafts();
+}
 
-	// 非编辑模式：将外部条目注入到 SSR section 中
-	function renderExternalItems() {
-		if (skipDomCollect) return;
-		for (const cat of Object.keys(categoryMap)) {
-			const section = document.querySelector(
-				`[data-section="${cat}"]`,
-			) as HTMLElement;
-			if (!section) continue;
-			const grid = section.querySelector(".bangumi-grid");
-			if (!grid) continue;
-			// 清除旧的外部条目
-			grid.querySelectorAll(".bangumi-item-external").forEach((el) => el.remove());
+function sortItems() {
+	items = [...items].sort((a, b) => {
+		const da = new Date(a.updated_at).getTime();
+		const db = new Date(b.updated_at).getTime();
+		return db - da;
+	});
+}
 
-			const catItems = items.filter((i) => i.category === cat && !i._local);
-			for (const item of catItems) {
-				const el = document.createElement("div");
-				el.className = "bangumi-item bangumi-item-external";
-				el.dataset.itemId = item.id;
-				el.dataset.itemSection = cat;
-				const statusInfo = statusMap[item.status] || statusMap[1];
-				const scoreHtml = item.score
-					? `<span class="bm-score"><svg class="bm-star" viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>${item.score}</span>`
+// 非编辑模式：将外部条目注入到 SSR section 中
+function renderExternalItems() {
+	if (skipDomCollect) return;
+	for (const cat of Object.keys(categoryMap)) {
+		const section = document.querySelector(
+			`[data-section="${cat}"]`,
+		) as HTMLElement;
+		if (!section) continue;
+		const grid = section.querySelector(".bangumi-grid");
+		if (!grid) continue;
+		// 清除旧的外部条目
+		grid
+			.querySelectorAll(".bangumi-item-external")
+			.forEach((el) => el.remove());
+
+		const catItems = items.filter((i) => i.category === cat && !i._local);
+		for (const item of catItems) {
+			const el = document.createElement("div");
+			el.className = "bangumi-item bangumi-item-external";
+			el.dataset.itemId = item.id;
+			el.dataset.itemSection = cat;
+			const statusInfo = statusMap[item.status] || statusMap[1];
+			const scoreHtml = item.score
+				? `<span class="bm-score"><svg class="bm-star" viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>${item.score}</span>`
+				: "";
+			const tagsHtml =
+				item.tags && item.tags.length > 0
+					? `<div class="bm-tags">${item.tags.map((t) => `<span class="bm-tag">${escapeHtml(t)}</span>`).join("")}</div>`
 					: "";
-				const tagsHtml =
-					item.tags && item.tags.length > 0
-						? `<div class="bm-tags">${item.tags.map((t) => `<span class="bm-tag">${escapeHtml(t)}</span>`).join("")}</div>`
-						: "";
-				const commentOverlay = item.comment
-					? `<div class="bm-overlay"><p class="bm-comment">${escapeHtml(item.comment)}</p></div>`
-					: "";
-				const subjectType =
-					cat === "anime" ? "2" : cat === "book" ? "1" : cat === "music" ? "3" : "4";
-				el.innerHTML = `
+			const commentOverlay = item.comment
+				? `<div class="bm-overlay"><p class="bm-comment">${escapeHtml(item.comment)}</p></div>`
+				: "";
+			const subjectType =
+				cat === "anime"
+					? "2"
+					: cat === "book"
+						? "1"
+						: cat === "music"
+							? "3"
+							: "4";
+			el.innerHTML = `
 					<a class="bm-card" data-type="${subjectType}" href="javascript:void(0)">
 						<div class="bm-cover">
 							<img src="${item.image}" alt="${escapeHtml(item.title)}" class="bm-img" loading="lazy" onerror="this.style.opacity='0.3'" />
@@ -351,220 +371,227 @@
 						</div>
 					</a>
 				`;
-				grid.insertBefore(el, grid.firstChild);
-			}
+			grid.insertBefore(el, grid.firstChild);
 		}
 	}
+}
 
-	function escapeHtml(text: string) {
-		const div = document.createElement("div");
-		div.textContent = text;
-		return div.innerHTML;
-	}
+function escapeHtml(text: string) {
+	const div = document.createElement("div");
+	div.textContent = text;
+	return div.innerHTML;
+}
 
-	// 进入/退出编辑模式
-	function handleModeChange(e: CustomEvent) {
-		editMode = e.detail.editing;
-		if (editMode) {
-			hideSSRContent();
-			editingIndex = -1;
-			activeTab = "all";
-		} else {
-			showSSRContent();
-		}
-	}
-
-	function hideSSRContent() {
-		// 隐藏 SSR 的 TabNav 和所有 section
-		const tabsWrapper = document.querySelector(".bangumi-tabs-wrapper");
-		if (tabsWrapper) (tabsWrapper as HTMLElement).style.display = "none";
-		// 隐藏 .bangumi-section（movies-games 页面）
-		document.querySelectorAll<HTMLElement>(".bangumi-section").forEach((s) => {
-			s.style.display = "none";
-		});
-		// 隐藏带 data-section 属性的元素（books 页面等）
-		document.querySelectorAll<HTMLElement>("[data-section]").forEach((s) => {
-			// 排除编辑器内部的元素
-			if (!s.closest('.edit-bangumi-wrapper')) {
-				s.style.display = "none";
-			}
-		});
-	}
-
-	function showSSRContent() {
-		const tabsWrapper = document.querySelector(".bangumi-tabs-wrapper");
-		if (tabsWrapper) (tabsWrapper as HTMLElement).style.display = "";
-		// 显示 .bangumi-section（movies-games 页面）
-		document.querySelectorAll<HTMLElement>(".bangumi-section").forEach((s) => {
-			s.style.display = "";
-		});
-		// 显示带 data-section 属性的元素（books 页面等）
-		document.querySelectorAll<HTMLElement>("[data-section]").forEach((s) => {
-			// 排除编辑器内部的元素
-			if (!s.closest('.edit-bangumi-wrapper')) {
-				s.style.display = "";
-			}
-		});
-	}
-
-	function handleCancel() {
-		items = deepClone(originalItems);
-		drafts.clearDrafts();
+// 进入/退出编辑模式
+function handleModeChange(e: CustomEvent) {
+	editMode = e.detail.editing;
+	if (editMode) {
+		hideSSRContent();
 		editingIndex = -1;
+		activeTab = "all";
+	} else {
 		showSSRContent();
 	}
+}
 
-	// 开始内联编辑
-	function startEdit(index: number) {
-		editingIndex = index;
-	}
-
-	function finishEdit(index: number) {
-		const item = items[index];
-		if (!item.title.trim()) {
-			showToast("标题不能为空", "warning");
-			return;
+function hideSSRContent() {
+	// 隐藏 SSR 的 TabNav 和所有 section
+	const tabsWrapper = document.querySelector(".bangumi-tabs-wrapper");
+	if (tabsWrapper) (tabsWrapper as HTMLElement).style.display = "none";
+	// 隐藏 .bangumi-section（movies-games 页面）
+	document.querySelectorAll<HTMLElement>(".bangumi-section").forEach((s) => {
+		s.style.display = "none";
+	});
+	// 隐藏带 data-section 属性的元素（books 页面等）
+	document.querySelectorAll<HTMLElement>("[data-section]").forEach((s) => {
+		// 排除编辑器内部的元素
+		if (!s.closest(".edit-bangumi-wrapper")) {
+			s.style.display = "none";
 		}
-		items[index] = { ...item, updated_at: new Date().toISOString(), _draft: false, _local: item._local };
-		items = [...items];
-		sortItems();
-		editingIndex = -1;
-		showToast("已修改，记得点击保存", "info");
-	}
+	});
+}
 
-	// 取消单卡片编辑
-	function cancelItemEdit(index: number) {
-		const item = items[index];
-		if (item._draft && !item.title.trim()) {
-			items = items.filter((_, i) => i !== index);
-		} else {
-			const orig = originalItems.find(
-				(o) => o.id === item.id && !item._draft,
-			);
-			if (orig) {
-				items[index] = deepClone(orig);
-				items = [...items];
-			}
+function showSSRContent() {
+	const tabsWrapper = document.querySelector(".bangumi-tabs-wrapper");
+	if (tabsWrapper) (tabsWrapper as HTMLElement).style.display = "";
+	// 显示 .bangumi-section（movies-games 页面）
+	document.querySelectorAll<HTMLElement>(".bangumi-section").forEach((s) => {
+		s.style.display = "";
+	});
+	// 显示带 data-section 属性的元素（books 页面等）
+	document.querySelectorAll<HTMLElement>("[data-section]").forEach((s) => {
+		// 排除编辑器内部的元素
+		if (!s.closest(".edit-bangumi-wrapper")) {
+			s.style.display = "";
 		}
-		editingIndex = -1;
-	}
+	});
+}
 
-	function deleteItem(index: number) {
-		const item = items[index];
-		if (!confirm(`确定要删除「${item.name_cn || item.title || "该条目"}」吗？`)) return;
+function handleCancel() {
+	items = deepClone(originalItems);
+	drafts.clearDrafts();
+	editingIndex = -1;
+	showSSRContent();
+}
+
+// 开始内联编辑
+function startEdit(index: number) {
+	editingIndex = index;
+}
+
+function finishEdit(index: number) {
+	const item = items[index];
+	if (!item.title.trim()) {
+		showToast("标题不能为空", "warning");
+		return;
+	}
+	items[index] = {
+		...item,
+		updated_at: new Date().toISOString(),
+		_draft: false,
+		_local: item._local,
+	};
+	items = [...items];
+	sortItems();
+	editingIndex = -1;
+	showToast("已修改，记得点击保存", "info");
+}
+
+// 取消单卡片编辑
+function cancelItemEdit(index: number) {
+	const item = items[index];
+	if (item._draft && !item.title.trim()) {
 		items = items.filter((_, i) => i !== index);
-		if (editingIndex === index) editingIndex = -1;
-		else if (editingIndex > index) editingIndex--;
-		showToast("已删除，记得点击保存", "info");
+	} else {
+		const orig = originalItems.find((o) => o.id === item.id && !item._draft);
+		if (orig) {
+			items[index] = deepClone(orig);
+			items = [...items];
+		}
 	}
+	editingIndex = -1;
+}
 
-	function handleAdd() {
-		const newItem: BangumiItem = {
-			id: genId("bgm"),
-			title: "",
-			name_cn: "",
-			category: "anime",
-			status: 1,
-			score: 0,
-			image: "",
-			tags: [],
-			comment: "",
-			updated_at: new Date().toISOString(),
-			_draft: true,
-			_local: false,
-		};
-		items = [...items, newItem];
-		editingIndex = items.length - 1;
+function deleteItem(index: number) {
+	const item = items[index];
+	if (!confirm(`确定要删除「${item.name_cn || item.title || "该条目"}」吗？`))
+		return;
+	items = items.filter((_, i) => i !== index);
+	if (editingIndex === index) editingIndex = -1;
+	else if (editingIndex > index) editingIndex--;
+	showToast("已删除，记得点击保存", "info");
+}
+
+function handleAdd() {
+	const newItem: BangumiItem = {
+		id: genId("bgm"),
+		title: "",
+		name_cn: "",
+		category: "anime",
+		status: 1,
+		score: 0,
+		image: "",
+		tags: [],
+		comment: "",
+		updated_at: new Date().toISOString(),
+		_draft: true,
+		_local: false,
+	};
+	items = [...items, newItem];
+	editingIndex = items.length - 1;
+}
+
+function handleSaveDraft() {
+	const cleanData = items.map(({ _draft, _local, ...rest }) => ({
+		...rest,
+		id: rest.id || genId("bgm"),
+	}));
+	items = cleanData;
+	drafts.saveToDrafts();
+}
+
+/** 等待 Vercel 新部署上线后刷新页面 */
+function waitForDeployAndReload() {
+	const startTime = Date.now();
+	const waitSeconds = 90;
+	const tickInterval = 10;
+	function tick() {
+		const elapsed = Math.round((Date.now() - startTime) / 1000);
+		if (elapsed >= waitSeconds) {
+			showToast("部署完成，正在刷新...", "success");
+			window.location.reload();
+		} else {
+			showToast(
+				`等待 Vercel 部署中... (${elapsed}s / ${waitSeconds}s)`,
+				"info",
+			);
+			setTimeout(tick, tickInterval * 1000);
+		}
 	}
+	setTimeout(tick, 15 * 1000);
+}
 
-	function handleSaveDraft() {
+async function handleSubmit() {
+	if (editingIndex >= 0) {
+		finishEdit(editingIndex);
+		if (editingIndex >= 0) return;
+	}
+	saving = true;
+	try {
 		const cleanData = items.map(({ _draft, _local, ...rest }) => ({
 			...rest,
 			id: rest.id || genId("bgm"),
 		}));
-		items = cleanData;
-		drafts.saveToDrafts();
-	}
 
-	/** 等待 Vercel 新部署上线后刷新页面 */
-	function waitForDeployAndReload() {
-		const startTime = Date.now();
-		const waitSeconds = 90;
-		const tickInterval = 10;
-		function tick() {
-			const elapsed = Math.round((Date.now() - startTime) / 1000);
-			if (elapsed >= waitSeconds) {
-				showToast("部署完成，正在刷新...", "success");
-				window.location.reload();
-			} else {
-				showToast(`等待 Vercel 部署中... (${elapsed}s / ${waitSeconds}s)`, "info");
-				setTimeout(tick, tickInterval * 1000);
-			}
-		}
-		setTimeout(tick, 15 * 1000);
-	}
-
-	async function handleSubmit() {
-		if (editingIndex >= 0) {
-			finishEdit(editingIndex);
-			if (editingIndex >= 0) return;
-		}
-		saving = true;
+		// 合并而非覆盖：获取仓库中其他分类的数据，与当前页面的数据合并
 		try {
-			const cleanData = items.map(({ _draft, _local, ...rest }) => ({
-				...rest,
-				id: rest.id || genId("bgm"),
-			}));
-
-			// 合并而非覆盖：获取仓库中其他分类的数据，与当前页面的数据合并
-			try {
-				const existing = await getRepoFile("public/bangumi.json");
-				if (existing && existing.content) {
-					const repoItems: BangumiItem[] = JSON.parse(existing.content);
-					const currentIds = new Set(cleanData.map((i) => i.id));
-					// 保留当前页面不涉及的条目（ID不在当前数据中的）
-					const otherItems = repoItems.filter((r) => !currentIds.has(r.id));
-					const merged = [...otherItems, ...cleanData];
-					items = merged;
-				} else {
-					items = cleanData;
-				}
-			} catch {
+			const existing = await getRepoFile("public/bangumi.json");
+			if (existing && existing.content) {
+				const repoItems: BangumiItem[] = JSON.parse(existing.content);
+				const currentIds = new Set(cleanData.map((i) => i.id));
+				// 保留当前页面不涉及的条目（ID不在当前数据中的）
+				const otherItems = repoItems.filter((r) => !currentIds.has(r.id));
+				const merged = [...otherItems, ...cleanData];
+				items = merged;
+			} else {
 				items = cleanData;
 			}
-
-			drafts.saveToDrafts();
-			await drafts.submitDrafts();
-		} finally {
-			saving = false;
+		} catch {
+			items = cleanData;
 		}
-	}
 
-	// 更新编辑中的卡片字段
-	function updateField(index: number, field: keyof BangumiItem, value: any) {
-		items[index] = { ...items[index], [field]: value };
-		items = [...items];
+		drafts.saveToDrafts();
+		await drafts.submitDrafts();
+	} finally {
+		saving = false;
 	}
+}
 
-	function updateTags(index: number, value: string) {
-		const tags = value
-			.split(/[,，\s]+/)
-			.map((t) => t.trim())
-			.filter(Boolean);
-		items[index] = { ...items[index], tags };
-		items = [...items];
-	}
+// 更新编辑中的卡片字段
+function updateField(index: number, field: keyof BangumiItem, value: any) {
+	items[index] = { ...items[index], [field]: value };
+	items = [...items];
+}
 
-	function switchTab(tabId: string) {
-		activeTab = tabId;
-		editingIndex = -1;
-	}
+function updateTags(index: number, value: string) {
+	const tags = value
+		.split(/[,，\s]+/)
+		.map((t) => t.trim())
+		.filter(Boolean);
+	items[index] = { ...items[index], tags };
+	items = [...items];
+}
 
-	// 切换状态筛选标签（仅影视游戏页面）
-	function switchStatusTab(tabId: string) {
-		activeStatusTab = tabId;
-		editingIndex = -1;
-	}
+function switchTab(tabId: string) {
+	activeTab = tabId;
+	editingIndex = -1;
+}
+
+// 切换状态筛选标签（仅影视游戏页面）
+function switchStatusTab(tabId: string) {
+	activeStatusTab = tabId;
+	editingIndex = -1;
+}
 </script>
 
 <EditToast />
