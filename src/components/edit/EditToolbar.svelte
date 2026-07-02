@@ -325,6 +325,20 @@ function closeHelpModal() {
 			</button>
 		{/if}
 
+		<button
+			class="edit-btn edit-btn-submit"
+			onclick={handleSubmitSingle}
+			disabled={saving || (!hasChanges && pageDraftCount === 0)}
+		>
+			{#if saving}
+				<iconify-icon icon="material-symbols:progress-activity-rounded" class="text-base animate-spin"></iconify-icon>
+				<span class="btn-text">提交中...</span>
+			{:else}
+				<iconify-icon icon="material-symbols:send-rounded" class="text-base"></iconify-icon>
+				<span class="btn-text">提交</span>
+			{/if}
+		</button>
+
 		<button class="edit-btn edit-btn-batch" onclick={handleBatchSubmit} title="批量提交所有暂存的更改">
 			<iconify-icon icon="material-symbols:cloud-upload-rounded" class="text-sm"></iconify-icon>
 			<span class="btn-text">批量提交</span>
@@ -341,11 +355,6 @@ function closeHelpModal() {
 			{/if}
 		</button>
 
-		<button class="edit-btn edit-btn-help" onclick={openHelpModal} title="使用帮助">
-			<iconify-icon icon="material-symbols:help-outline-rounded" class="text-sm"></iconify-icon>
-			<span class="btn-text">帮助</span>
-		</button>
-
 		{#if showAddButton !== false}
 			<button class="edit-btn edit-btn-add" onclick={handleAdd}>
 				<iconify-icon icon="material-symbols:add-rounded" class="text-base"></iconify-icon>
@@ -353,18 +362,9 @@ function closeHelpModal() {
 			</button>
 		{/if}
 
-		<button
-			class="edit-btn edit-btn-submit"
-			onclick={handleSubmitSingle}
-			disabled={saving || (!hasChanges && pageDraftCount === 0)}
-		>
-			{#if saving}
-				<iconify-icon icon="material-symbols:progress-activity-rounded" class="text-base animate-spin"></iconify-icon>
-				<span class="btn-text">提交中...</span>
-			{:else}
-				<iconify-icon icon="material-symbols:send-rounded" class="text-base"></iconify-icon>
-				<span class="btn-text">提交</span>
-			{/if}
+		<button class="edit-btn edit-btn-help" onclick={openHelpModal} title="使用帮助">
+			<iconify-icon icon="material-symbols:help-outline-rounded" class="text-sm"></iconify-icon>
+			<span class="btn-text">帮助</span>
 		</button>
 	{/if}
 
