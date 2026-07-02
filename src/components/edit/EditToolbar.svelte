@@ -1,257 +1,296 @@
 <script lang="ts">
-	import { onMount, createEventDispatcher, tick } from "svelte";
-	const dispatch = createEventDispatcher();
-	import {
-		setStoredAppId,
-		setStoredPrivateKey,
-		clearStoredCredentials,
-		hasValidCredentials,
-		validateCredentials,
-		readFileAsText,
-		showToast,
-		ensureIconify,
-		invalidateToken,
-		getDraftCount,
-		getDraftsByPage,
-		removeDraft,
-		submitAllDrafts,
-		onDraftsChanged,
-		checkProxyConfigured,
-	} from "@/utils/editMode";
-	import { repoConfig } from "@/config/editConfig";
+import { onMount, createEventDispatcher, tick } from "svelte";
+const dispatch = createEventDispatcher();
+import {
+	setStoredAppId,
+	setStoredPrivateKey,
+	clearStoredCredentials,
+	hasValidCredentials,
+	validateCredentials,
+	readFileAsText,
+	showToast,
+	ensureIconify,
+	invalidateToken,
+	getDraftCount,
+	getDraftsByPage,
+	removeDraft,
+	clearDraftsByPage,
+	submitAllDrafts,
+	onDraftsChanged,
+	checkProxyConfigured,
+} from "@/utils/editMode";
+import { repoConfig } from "@/config/editConfig";
 
-	let {
-		pageName,
-		pageKey = "",
-		saving,
-		hasChanges,
-		showAddButton = true,
-		startInEditMode = false,
-		persistentEdit = false,
-		mountTo,
-	}: {
-		pageName: string;
-		pageKey?: string;
-		saving: boolean;
-		hasChanges: boolean;
-		showAddButton?: boolean;
-		startInEditMode?: boolean;
-		persistentEdit?: boolean;
-		mountTo?: string;
-	} = $props();
+let {
+	pageName,
+	pageKey = "",
+	saving,
+	hasChanges,
+	showAddButton = true,
+	startInEditMode = false,
+	persistentEdit = false,
+	mountTo,
+}: {
+	pageName: string;
+	pageKey?: string;
+	saving: boolean;
+	hasChanges: boolean;
+	showAddButton?: boolean;
+	startInEditMode?: boolean;
+	persistentEdit?: boolean;
+	mountTo?: string;
+} = $props();
 
-	let editMode = $state(false);
-	let authed = $state(false);
-	let validating = $state(false);
-	let showHelpModal = $state(false);
-	let showDraftModal = $state(false);
-	let showBatchSubmitModal = $state(false);
-	let toolbarRootEl = $state<HTMLDivElement>();
-	let mountedExternally = false;
-	let hiddenWrapper: HTMLElement | null = null;
-	let mountTarget: Element | null = null;
-	let submittingBatch = $state(false);
-	let batchResult = $state<{ success: number; failed: number; errors: string[] } | null>(null);
+let editMode = $state(false);
+let authed = $state(false);
+let validating = $state(false);
+let showHelpModal = $state(false);
+let showDraftModal = $state(false);
+let showBatchSubmitModal = $state(false);
+let showClearConfirmModal = $state(false);
+let toolbarRootEl = $state<HTMLDivElement>();
+let mountedExternally = false;
+let hiddenWrapper: HTMLElement | null = null;
+let mountTarget: Element | null = null;
+let submittingBatch = $state(false);
+let batchResult = $state<{
+	success: number;
+	failed: number;
+	errors: string[];
+} | null>(null);
 
-	// 密钥导入相关（参考 WriteEditor 方式）
-	let selectedFileName = $state("");
-	let keyFileInputEl = $state<HTMLInputElement>();
-	let pageDraftCount = $state(0);
-	let totalDraftCount = $state(0);
-	let unsubscribeDrafts: (() => void) | null = null;
+// 密钥导入相关（参考 WriteEditor 方式）
+let selectedFileName = $state("");
+let keyFileInputEl = $state<HTMLInputElement>();
+let pageDraftCount = $state(0);
+let totalDraftCount = $state(0);
+let unsubscribeDrafts: (() => void) | null = null;
 
-	onMount(async () => {
-		ensureIconify();
-		// 检查服务端代理认证
-		const proxyOk = await checkProxyConfigured();
-		authed = proxyOk || hasValidCredentials();
+onMount(async () => {
+	ensureIconify();
+	// 检查服务端代理认证
+	const proxyOk = await checkProxyConfigured();
+	authed = proxyOk || hasValidCredentials();
+	pageDraftCount = getDraftsByPage(pageKey).length;
+	totalDraftCount = getDraftCount();
+	unsubscribeDrafts = onDraftsChanged(() => {
 		pageDraftCount = getDraftsByPage(pageKey).length;
 		totalDraftCount = getDraftCount();
-		unsubscribeDrafts = onDraftsChanged(() => {
-			pageDraftCount = getDraftsByPage(pageKey).length;
-			totalDraftCount = getDraftCount();
-		});
-		if (startInEditMode) {
-			editMode = true;
-		}
-		if (mountTo) {
-			mountTarget = document.querySelector(mountTo);
-			await tick();
-			moveToolbar();
-		}
-		return () => {
-			if (hiddenWrapper) {
-				hiddenWrapper.style.display = "";
-			}
-			if (unsubscribeDrafts) unsubscribeDrafts();
-		};
 	});
-
-	function moveToolbar() {
-		if (mountTo && toolbarRootEl && mountTarget && !mountedExternally) {
-			const wrapper = toolbarRootEl.parentElement;
-			if (wrapper && wrapper !== mountTarget) {
-				hiddenWrapper = wrapper as HTMLElement;
-				hiddenWrapper.style.display = "none";
-			}
-			const firstChild = mountTarget.firstChild;
-			if (firstChild) {
-				mountTarget.insertBefore(toolbarRootEl, firstChild);
-			} else {
-				mountTarget.appendChild(toolbarRootEl);
-			}
-			mountedExternally = true;
-		}
-	}
-
-	$effect(() => {
-		if (mountTo && toolbarRootEl && mountTarget) {
-			tick().then(moveToolbar);
-		}
-	});
-
-	function enterEdit() {
+	if (startInEditMode) {
 		editMode = true;
-		dispatch("modeChange", { editing: true });
 	}
-
-	function cancelEdit() {
-		if (hasChanges && !confirm("你有未保存的更改，确定要取消吗？所有修改将丢失。")) {
-			return;
+	if (mountTo) {
+		mountTarget = document.querySelector(mountTo);
+		await tick();
+		moveToolbar();
+	}
+	return () => {
+		if (hiddenWrapper) {
+			hiddenWrapper.style.display = "";
 		}
-		if (!persistentEdit) {
-			editMode = false;
-			dispatch("modeChange", { editing: false });
+		if (unsubscribeDrafts) unsubscribeDrafts();
+	};
+});
+
+function moveToolbar() {
+	if (mountTo && toolbarRootEl && mountTarget && !mountedExternally) {
+		const wrapper = toolbarRootEl.parentElement;
+		if (wrapper && wrapper !== mountTarget) {
+			hiddenWrapper = wrapper as HTMLElement;
+			hiddenWrapper.style.display = "none";
 		}
-		dispatch("cancel");
+		const firstChild = mountTarget.firstChild;
+		if (firstChild) {
+			mountTarget.insertBefore(toolbarRootEl, firstChild);
+		} else {
+			mountTarget.appendChild(toolbarRootEl);
+		}
+		mountedExternally = true;
 	}
+}
 
-	function handleAdd() {
-		dispatch("add");
+$effect(() => {
+	if (mountTo && toolbarRootEl && mountTarget) {
+		tick().then(moveToolbar);
 	}
+});
 
-	// 密钥导入相关（参考 WriteEditor 方式）
-	function triggerKeyImport() {
-		keyFileInputEl?.click();
+function enterEdit() {
+	editMode = true;
+	dispatch("modeChange", { editing: true });
+}
+
+function cancelEdit() {
+	if (
+		hasChanges &&
+		!confirm("你有未保存的更改，确定要取消吗？所有修改将丢失。")
+	) {
+		return;
 	}
+	if (!persistentEdit) {
+		editMode = false;
+		dispatch("modeChange", { editing: false });
+	}
+	dispatch("cancel");
+}
 
-	async function handleKeyFileSelect(e: Event) {
-		const input = e.target as HTMLInputElement;
-		const file = input.files?.[0];
-		if (!file) {
+function handleAdd() {
+	dispatch("add");
+}
+
+// 密钥导入相关（参考 WriteEditor 方式）
+function triggerKeyImport() {
+	keyFileInputEl?.click();
+}
+
+async function handleKeyFileSelect(e: Event) {
+	const input = e.target as HTMLInputElement;
+	const file = input.files?.[0];
+	if (!file) {
+		input.value = "";
+		return;
+	}
+	try {
+		const pem = await readFileAsText(file);
+		const appId = repoConfig.appId;
+		if (!appId) {
+			showToast("请先在 Vercel 环境变量中配置 PUBLIC_GITHUB_APP_ID", "error");
 			input.value = "";
 			return;
 		}
-		try {
-			const pem = await readFileAsText(file);
-			const appId = repoConfig.appId;
-			if (!appId) {
-				showToast("请先在 Vercel 环境变量中配置 PUBLIC_GITHUB_APP_ID", "error");
-				input.value = "";
-				return;
-			}
-			validating = true;
-			showToast("正在验证私钥...", "info");
-			const result = await validateCredentials(appId, pem);
-			if (result.ok) {
-				setStoredAppId(appId);
-				setStoredPrivateKey(pem);
-				authed = true;
-				selectedFileName = file.name;
-				showToast("私钥导入成功！", "success");
-			} else {
-				showToast(result.error || "私钥验证失败", "error");
-			}
-		} catch (err) {
-			showToast("读取私钥文件失败", "error");
-		} finally {
-			validating = false;
-			input.value = "";
+		validating = true;
+		showToast("正在验证私钥...", "info");
+		const result = await validateCredentials(appId, pem);
+		if (result.ok) {
+			setStoredAppId(appId);
+			setStoredPrivateKey(pem);
+			authed = true;
+			selectedFileName = file.name;
+			showToast("私钥导入成功！", "success");
+		} else {
+			showToast(result.error || "私钥验证失败", "error");
 		}
+	} catch (err) {
+		showToast("读取私钥文件失败", "error");
+	} finally {
+		validating = false;
+		input.value = "";
 	}
+}
 
-	function handleLogout() {
-		if (!confirm("确定要清除已保存的私钥吗？清除后需要重新导入才能提交。")) return;
-		clearStoredCredentials();
-		invalidateToken();
-		authed = false;
-		showToast("已清除私钥", "info");
-		dispatch("authChange", { authed: false });
+function handleLogout() {
+	if (!confirm("确定要清除已保存的私钥吗？清除后需要重新导入才能提交。"))
+		return;
+	clearStoredCredentials();
+	invalidateToken();
+	authed = false;
+	showToast("已清除私钥", "info");
+	dispatch("authChange", { authed: false });
+}
+
+function handleSaveDraft() {
+	dispatch("saveDraft");
+}
+
+function handleSubmitSingle() {
+	if (!authed) {
+		showToast("请先导入 GitHub App 私钥", "warning");
+		triggerKeyImport();
+		return;
 	}
-
-	function handleSaveDraft() {
-		dispatch("saveDraft");
+	if (!hasChanges && pageDraftCount === 0) {
+		showToast("没有需要提交的更改", "info");
+		return;
 	}
+	dispatch("submit");
+}
 
-	function handleSubmitSingle() {
-		if (!authed) {
-			showToast("请先导入 GitHub App 私钥", "warning");
-			triggerKeyImport();
-			return;
+async function handleBatchSubmit() {
+	if (!authed) {
+		showToast("请先导入 GitHub App 私钥", "warning");
+		triggerKeyImport();
+		return;
+	}
+	if (totalDraftCount === 0) {
+		showToast("暂存区是空的，先保存一些草稿吧", "info");
+		return;
+	}
+	showBatchSubmitModal = true;
+	batchResult = null;
+	// 禁用 body 滚动
+	document.body.style.overflow = "hidden";
+}
+
+function handleClearDrafts() {
+	if (pageDraftCount === 0) {
+		showToast(`当前页面没有草稿`, "info");
+		return;
+	}
+	showClearConfirmModal = true;
+	document.body.style.overflow = "hidden";
+}
+
+function confirmClearDrafts() {
+	clearDraftsByPage(pageKey);
+	showClearConfirmModal = false;
+	document.body.style.overflow = "";
+	showToast(`已清除 ${pageName} 的草稿`, "success");
+}
+
+function closeClearModal() {
+	showClearConfirmModal = false;
+	document.body.style.overflow = "";
+}
+
+async function confirmBatchSubmit() {
+	submittingBatch = true;
+	batchResult = null;
+	try {
+		const result = await submitAllDrafts();
+		batchResult = result;
+		if (result.failed === 0) {
+			showToast(`批量提交成功！共 ${result.success} 项`, "success");
+		} else {
+			showToast(
+				`提交完成：成功 ${result.success}，失败 ${result.failed}`,
+				"warning",
+			);
 		}
-		if (!hasChanges && pageDraftCount === 0) {
-			showToast("没有需要提交的更改", "info");
-			return;
+		// 如果当前页面被提交了，刷新页面
+		if (pageKey && result.submittedPageKeys.has(pageKey)) {
+			setTimeout(() => window.location.reload(), 1200);
 		}
-		dispatch("submit");
+	} catch (e: any) {
+		batchResult = {
+			success: 0,
+			failed: 1,
+			errors: [e?.message || "未知错误"],
+			submittedPageKeys: new Set(),
+		};
+	} finally {
+		submittingBatch = false;
 	}
+}
 
-	async function handleBatchSubmit() {
-		if (!authed) {
-			showToast("请先导入 GitHub App 私钥", "warning");
-			triggerKeyImport();
-			return;
-		}
-		if (totalDraftCount === 0) {
-			showToast("暂存区是空的，先保存一些草稿吧", "info");
-			return;
-		}
-		showBatchSubmitModal = true;
-		batchResult = null;
-		// 禁用 body 滚动
-		document.body.style.overflow = 'hidden';
-	}
+function closeBatchModal() {
+	showBatchSubmitModal = false;
+	batchResult = null;
+	// 恢复 body 滚动
+	document.body.style.overflow = "";
+}
 
-	async function confirmBatchSubmit() {
-		submittingBatch = true;
-		batchResult = null;
-		try {
-			const result = await submitAllDrafts();
-			batchResult = result;
-			if (result.failed === 0) {
-				showToast(`批量提交成功！共 ${result.success} 项`, "success");
-			} else {
-				showToast(`提交完成：成功 ${result.success}，失败 ${result.failed}`, "warning");
-			}
-			// 如果当前页面被提交了，刷新页面
-			if (pageKey && result.submittedPageKeys.has(pageKey)) {
-				setTimeout(() => window.location.reload(), 1200);
-			}
-		} catch (e: any) {
-			batchResult = { success: 0, failed: 1, errors: [e?.message || "未知错误"], submittedPageKeys: new Set() };
-		} finally {
-			submittingBatch = false;
-		}
-	}
+function openHelpModal() {
+	showHelpModal = true;
+	// 禁用 body 滚动
+	document.body.style.overflow = "hidden";
+}
 
-	function closeBatchModal() {
-		showBatchSubmitModal = false;
-		batchResult = null;
-		// 恢复 body 滚动
-		document.body.style.overflow = '';
-	}
-
-	function openHelpModal() {
-		showHelpModal = true;
-		// 禁用 body 滚动
-		document.body.style.overflow = 'hidden';
-	}
-
-	function closeHelpModal() {
-		showHelpModal = false;
-		// 恢复 body 滚动
-		document.body.style.overflow = '';
-	}
+function closeHelpModal() {
+	showHelpModal = false;
+	// 恢复 body 滚动
+	document.body.style.overflow = "";
+}
 </script>
 
 <div class="edit-toolbar" bind:this={toolbarRootEl} class:edit-toolbar--mounted={mountedExternally} class:edit-mode-toolbar={editMode}>
@@ -291,6 +330,14 @@
 			<span class="btn-text">批量提交</span>
 			{#if totalDraftCount > 0}
 				<span class="batch-badge">{totalDraftCount}</span>
+			{/if}
+		</button>
+
+		<button class="edit-btn edit-btn-clear" onclick={handleClearDrafts} disabled={pageDraftCount === 0} title="清除当前页面的草稿">
+			<iconify-icon icon="material-symbols:delete-outline-rounded" class="text-sm"></iconify-icon>
+			<span class="btn-text">清除草稿</span>
+			{#if pageDraftCount > 0}
+				<span class="draft-badge">{pageDraftCount}</span>
 			{/if}
 		</button>
 
@@ -396,6 +443,38 @@
 						{/if}
 					</button>
 				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- 清除草稿确认弹窗 -->
+{#if showClearConfirmModal}
+	<div class="modal-overlay" onclick={closeClearModal}>
+		<div class="modal-card modal-sm" onclick={(e) => e.stopPropagation()}>
+			<div class="modal-header">
+				<h3>
+					<iconify-icon icon="material-symbols:delete-outline-rounded" class="text-lg mr-2 text-red-500"></iconify-icon>
+					清除草稿
+				</h3>
+				<button class="modal-close" onclick={closeClearModal}>
+					<iconify-icon icon="material-symbols:close-rounded" class="text-xl"></iconify-icon>
+				</button>
+			</div>
+			<div class="modal-body">
+				<p class="modal-desc">
+					确定要清除 <strong>{pageName}</strong> 的所有草稿吗？此操作不可恢复。
+				</p>
+				<p class="modal-desc" style="margin-top: 8px; color: #666; font-size: 12px;">
+					当前有 {pageDraftCount} 条草稿将被删除。
+				</p>
+			</div>
+			<div class="modal-footer">
+				<button class="modal-btn modal-btn-cancel" onclick={closeClearModal}>取消</button>
+				<button class="modal-btn modal-btn-danger" onclick={confirmClearDrafts}>
+					<iconify-icon icon="material-symbols:delete-rounded" class="text-sm mr-1"></iconify-icon>
+					确认清除
+				</button>
 			</div>
 		</div>
 	</div>
@@ -568,6 +647,29 @@
 	:global(.dark) .edit-btn-draft:hover:not(:disabled) {
 		border-color: #60a5fa;
 		background: rgba(96, 165, 250, 0.2);
+	}
+
+	.edit-btn-clear {
+		border-color: rgba(239, 68, 68, 0.3);
+		color: #dc2626;
+		background: rgba(239, 68, 68, 0.08);
+	}
+	.edit-btn-clear:hover:not(:disabled) {
+		border-color: #dc2626;
+		background: rgba(239, 68, 68, 0.15);
+	}
+	.edit-btn-clear:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+	:global(.dark) .edit-btn-clear {
+		border-color: rgba(248, 113, 113, 0.3);
+		color: #f87171;
+		background: rgba(248, 113, 113, 0.1);
+	}
+	:global(.dark) .edit-btn-clear:hover:not(:disabled) {
+		border-color: #f87171;
+		background: rgba(248, 113, 113, 0.2);
 	}
 	.draft-badge {
 		display: inline-flex;
@@ -858,6 +960,10 @@
 		color: #f0f0f0;
 	}
 
+	.modal-sm {
+		max-width: 400px;
+	}
+
 	.modal-header {
 		display: flex;
 		align-items: center;
@@ -971,6 +1077,24 @@
 	.modal-btn-ok:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
+	}
+
+	.modal-btn-danger {
+		background: #dc2626;
+		color: white;
+		border-color: #dc2626;
+	}
+	.modal-btn-danger:hover:not(:disabled) {
+		background: #b91c1c;
+		border-color: #b91c1c;
+	}
+	:global(.dark) .modal-btn-danger {
+		background: #ef4444;
+		border-color: #ef4444;
+	}
+	:global(.dark) .modal-btn-danger:hover:not(:disabled) {
+		background: #dc2626;
+		border-color: #dc2626;
 	}
 
 	.help-body h4 {
