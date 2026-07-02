@@ -64,6 +64,9 @@
 @import './pages/categories.css';
 @import './pages/calendar.css';
 @import './pages/article-list.css';
+@import './pages/routines.css';
+@import './pages/books.css';
+@import './pages/notebooks.css';
 
 
 @plugin '@tailwindcss/typography';
