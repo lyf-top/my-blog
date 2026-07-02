@@ -478,8 +478,16 @@
 		cursor: pointer;
 		transition: background-color 0.2s, color 0.2s;
 		white-space: nowrap;
-		line-height: 1.4;
-		height: auto;
+		line-height: 1;
+		height: 32px;
+		box-sizing: border-box;
+	}
+	.edit-main-btn iconify-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		vertical-align: middle;
+		line-height: 0;
 	}
 	.edit-main-btn:hover {
 		background: rgba(0, 0, 0, 0.9);
@@ -508,6 +516,16 @@
 		background: transparent;
 		white-space: nowrap;
 		position: relative;
+		height: 32px;
+		box-sizing: border-box;
+		line-height: 1;
+	}
+	.edit-btn iconify-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		vertical-align: middle;
+		line-height: 0;
 	}
 
 	.edit-btn-cancel {

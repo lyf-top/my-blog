@@ -109,9 +109,24 @@ const description =
 
 <style>
   /* 确保工具栏按钮高度一致 */
-  .edit-toolbar-btn {
-    height: 32px;
+  .edit-toolbar-btn,
+  .page-header-toolbar-slot button {
+    height: 32px !important;
     box-sizing: border-box;
+    line-height: 1 !important;
+    vertical-align: middle;
+  }
+
+  /* 确保图标垂直居中 */
+  .edit-toolbar-btn iconify-icon,
+  .edit-toolbar-btn Icon,
+  .page-header-toolbar-slot button iconify-icon,
+  .page-header-toolbar-slot button Icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+    line-height: 0;
   }
 
   @media (max-width: 768px) {
