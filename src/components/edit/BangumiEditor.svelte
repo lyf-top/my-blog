@@ -378,16 +378,32 @@
 		// 隐藏 SSR 的 TabNav 和所有 section
 		const tabsWrapper = document.querySelector(".bangumi-tabs-wrapper");
 		if (tabsWrapper) (tabsWrapper as HTMLElement).style.display = "none";
+		// 隐藏 .bangumi-section（movies-games 页面）
 		document.querySelectorAll<HTMLElement>(".bangumi-section").forEach((s) => {
 			s.style.display = "none";
+		});
+		// 隐藏带 data-section 属性的元素（books 页面等）
+		document.querySelectorAll<HTMLElement>("[data-section]").forEach((s) => {
+			// 排除编辑器内部的元素
+			if (!s.closest('.edit-bangumi-wrapper')) {
+				s.style.display = "none";
+			}
 		});
 	}
 
 	function showSSRContent() {
 		const tabsWrapper = document.querySelector(".bangumi-tabs-wrapper");
 		if (tabsWrapper) (tabsWrapper as HTMLElement).style.display = "";
+		// 显示 .bangumi-section（movies-games 页面）
 		document.querySelectorAll<HTMLElement>(".bangumi-section").forEach((s) => {
 			s.style.display = "";
+		});
+		// 显示带 data-section 属性的元素（books 页面等）
+		document.querySelectorAll<HTMLElement>("[data-section]").forEach((s) => {
+			// 排除编辑器内部的元素
+			if (!s.closest('.edit-bangumi-wrapper')) {
+				s.style.display = "";
+			}
 		});
 	}
 
