@@ -608,6 +608,7 @@ function getScheduleDescription(s: ScheduleItem): string {
 		{/if}
 	</div>
 </div>
+{/if}
 
 <style>
 	.calendar-editor {
