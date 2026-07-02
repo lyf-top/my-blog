@@ -30,11 +30,15 @@ let {
 	defaultCategory = "all",
 	skipDomCollect = false,
 	customPageName = "番剧",
+	configPath = "public/bangumi.json",
+	configExportName = "bangumiConfig",
 	initialItems = [],
 }: {
 	defaultCategory?: string;
 	skipDomCollect?: boolean;
 	customPageName?: string;
+	configPath?: string;
+	configExportName?: string;
 	initialItems?: BangumiItem[];
 } = $props();
 
@@ -52,18 +56,52 @@ const currentPageKey = customPageName === "书架"
 		? "movies-games"
 		: "bangumi";
 
+// TS 配置文件内容生成与解析
+function generateTsContent(data: BangumiItem[]): string {
+	const json = JSON.stringify(data, null, 2);
+	return `// 此文件由编辑器自动生成，请勿手动修改\nexport const ${configExportName} = ${json} as const;\n`;
+}
+
+function parseTsContent(content: string): BangumiItem[] | null {
+	try {
+		// 匹配 export const xxx = [...]; 或 export const xxx = [...] as const;
+		const match = content.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*\])\s*(?:as\s+const)?;?\s*$/m);
+		if (match) return JSON.parse(match[1]);
+		// 回退：尝试直接解析为 JSON
+		return JSON.parse(content);
+	} catch {
+		return null;
+	}
+}
+
+const isJsonFile = configPath.endsWith(".json");
+
 const drafts = setupRepoDrafts({
 	pageKey: currentPageKey,
 	pageName: customPageName,
-	getContent: () => JSON.stringify(items, null, 2),
-	setContent: (v) => (items = JSON.parse(v)),
-	getPath: () => "public/bangumi.json",
+	getContent: () => isJsonFile ? JSON.stringify(items, null, 2) : generateTsContent(items),
+	setContent: (v) => {
+		if (isJsonFile) {
+			items = JSON.parse(v);
+		} else {
+			const parsed = parseTsContent(v);
+			if (parsed) items = parsed;
+		}
+	},
+	getPath: () => configPath,
 	getSha: () => fileSha,
 	setSha: (v) => (fileSha = v),
-	getOriginalContent: () => JSON.stringify(originalItems, null, 2),
-	setOriginalContent: (v) => (originalItems = JSON.parse(v)),
+	getOriginalContent: () => isJsonFile ? JSON.stringify(originalItems, null, 2) : generateTsContent(originalItems),
+	setOriginalContent: (v) => {
+		if (isJsonFile) {
+			originalItems = JSON.parse(v);
+		} else {
+			const parsed = parseTsContent(v);
+			if (parsed) originalItems = parsed;
+		}
+	},
 	getCommitMsg: (isEdit) =>
-		isEdit ? `chore: update bangumi` : `chore: create bangumi`,
+		isEdit ? `chore: update ${customPageName} config` : `chore: create ${customPageName} config`,
 	onSubmitted: () => {
 		waitForDeployAndReload();
 	},
@@ -484,27 +522,10 @@ async function handleSubmit() {
 	}
 	saving = true;
 	try {
-		const cleanData = items.map(({ _draft, _local, ...rest }) => ({
+		items = items.map(({ _draft, _local, ...rest }) => ({
 			...rest,
 			id: rest.id || genId("bgm"),
 		}));
-
-		// 合并而非覆盖：获取仓库中其他分类的数据，与当前页面的数据合并
-		try {
-			const existing = await getRepoFile("public/bangumi.json");
-			if (existing && existing.content) {
-				const repoItems: BangumiItem[] = JSON.parse(existing.content);
-				const currentIds = new Set(cleanData.map((i) => i.id));
-				// 保留当前页面不涉及的条目（ID不在当前数据中的）
-				const otherItems = repoItems.filter((r) => !currentIds.has(r.id));
-				const merged = [...otherItems, ...cleanData];
-				items = merged;
-			} else {
-				items = cleanData;
-			}
-		} catch {
-			items = cleanData;
-		}
 
 		drafts.saveToDrafts();
 		await drafts.submitDrafts();

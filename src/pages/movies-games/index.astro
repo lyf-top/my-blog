@@ -6,12 +6,11 @@ import ClientPagination from "@/components/common/ClientPagination.astro";
 import MovieGameCard from "@/components/pages/movies-games/MovieGameCard.astro";
 import BangumiEditor from "@/components/edit/BangumiEditor.svelte";
 import { siteConfig } from "@/config";
+import { moviesGamesConfig } from "@/config/moviesGamesConfig";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
 import MainGridLayout from "@/layouts/MainGridLayout.astro";
 import { formatDateI18nWithTime } from "@/utils/date-utils";
-import fs from "node:fs";
-import path from "node:path";
 
 if (!siteConfig.pages.moviesGames) {
 	return Astro.redirect("/404/");
@@ -123,59 +122,46 @@ const mgItems: MgItem[] = customBangumi
 			new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
 	);
 
-// 读取 bangumi.json 中编辑器保存的数据，覆盖 content collection 的对应条目
+// 读取 moviesGamesConfig 中编辑器保存的数据，覆盖 content collection 的对应条目
 try {
-	const bangumiJsonPath = path.join(process.cwd(), "public", "bangumi.json");
-	if (fs.existsSync(bangumiJsonPath)) {
-		const repoItems: Array<{
-			id: string;
-			title?: string;
-			name_cn?: string;
-			category?: string;
-			status?: number;
-			score?: number;
-			tags?: string[];
-			comment?: string;
-			updated_at?: string;
-		}> = JSON.parse(fs.readFileSync(bangumiJsonPath, "utf-8"));
-		const repoMap = new Map(
-			repoItems
-				.filter((r) => r.id && r.id !== "undefined")
-				.map((r) => [r.id, r]),
-		);
+	const repoItems = moviesGamesConfig;
+	const repoMap = new Map(
+		repoItems
+			.filter((r) => r.id && r.id !== "undefined")
+			.map((r) => [r.id, r]),
+	);
 
-		for (let i = 0; i < mgItems.length; i++) {
-			const mgItem = mgItems[i];
-			const repoId = `/bangumi/${mgItem._contentId}/`;
-			const repoItem = repoMap.get(repoId);
-			if (repoItem) {
-				// 将 category 保存到 _subcategory 字段，供 getItemSubcategory 使用
-				const subcategory = repoItem.category && ["anime", "tv", "movie", "documentary", "game"].includes(repoItem.category)
-					? repoItem.category
-					: undefined;
-				mgItems[i] = {
-					...mgItem,
-					rate: repoItem.score ?? mgItem.rate,
-					type: repoItem.status ?? mgItem.type,
-					comment: repoItem.comment ?? mgItem.comment,
-					tags: repoItem.tags ?? mgItem.tags,
-					updated_at: repoItem.updated_at ?? mgItem.updated_at,
-					_subcategory: subcategory,
-					subject: {
-						...mgItem.subject,
-						name: repoItem.title ?? mgItem.subject.name,
-						name_cn: repoItem.name_cn ?? mgItem.subject.name_cn,
-					},
-				};
-			}
+	for (let i = 0; i < mgItems.length; i++) {
+		const mgItem = mgItems[i];
+		const repoId = `/bangumi/${mgItem._contentId}/`;
+		const repoItem = repoMap.get(repoId);
+		if (repoItem) {
+			// 将 category 保存到 _subcategory 字段，供 getItemSubcategory 使用
+			const subcategory = repoItem.category && ["anime", "tv", "movie", "documentary", "game"].includes(repoItem.category)
+				? repoItem.category
+				: undefined;
+			mgItems[i] = {
+				...mgItem,
+				rate: repoItem.score ?? mgItem.rate,
+				type: repoItem.status ?? mgItem.type,
+				comment: repoItem.comment ?? mgItem.comment,
+				tags: repoItem.tags ?? mgItem.tags,
+				updated_at: repoItem.updated_at ?? mgItem.updated_at,
+				_subcategory: subcategory,
+				subject: {
+					...mgItem.subject,
+					name: repoItem.title ?? mgItem.subject.name,
+					name_cn: repoItem.name_cn ?? mgItem.subject.name_cn,
+				},
+			};
 		}
 	}
 } catch (e) {
-	console.error("[movies-games] Failed to read bangumi.json:", e);
+	console.error("[movies-games] Failed to read moviesGamesConfig:", e);
 }
 
 function getItemSubcategory(item: MgItem): string {
-	// 优先使用 _subcategory 字段（从 bangumi.json 的 category 转换而来）
+	// 优先使用 _subcategory 字段（从 config 的 category 转换而来）
 	if (item._subcategory) return item._subcategory;
 	
 	const tags = item.tags || [];
@@ -345,6 +331,8 @@ const bangumiInitialItems = mgItems.map((item) => {
 					defaultCategory="all"
 					skipDomCollect={true}
 					customPageName="影视游戏"
+					configPath="src/config/moviesGamesConfig.ts"
+					configExportName="moviesGamesConfig"
 					initialItems={bangumiInitialItems}
 				/>
 			</div>

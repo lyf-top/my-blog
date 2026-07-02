@@ -5,13 +5,12 @@ import { Icon } from "astro-icon/components";
 import Bookshelf from "@/components/pages/books/Bookshelf.astro";
 import BangumiEditor from "@/components/edit/BangumiEditor.svelte";
 import { siteConfig } from "@/config";
+import { booksConfig } from "@/config/booksConfig";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
 import MainGridLayout from "@/layouts/MainGridLayout.astro";
 import { formatDateI18nWithTime } from "@/utils/date-utils";
 import { removeFileExtension } from "@/utils/url-utils";
-import fs from "node:fs";
-import path from "node:path";
 
 if (!siteConfig.pages.books) {
 	return Astro.redirect("/404/");
@@ -21,7 +20,7 @@ const buildTime = formatDateI18nWithTime(new Date());
 
 const customBangumi = await getCollection("bangumi");
 
-// 读取 bangumi.json 中编辑器保存的数据
+// 读取 booksConfig 中编辑器保存的数据
 let repoBookMap = new Map<
 	string,
 	{
@@ -35,33 +34,21 @@ let repoBookMap = new Map<
 	}
 >();
 try {
-	const bangumiJsonPath = path.join(process.cwd(), "public", "bangumi.json");
-	if (fs.existsSync(bangumiJsonPath)) {
-		const repoItems: Array<{
-			id: string;
-			title?: string;
-			name_cn?: string;
-			status?: number;
-			score?: number;
-			tags?: string[];
-			comment?: string;
-			updated_at?: string;
-		}> = JSON.parse(fs.readFileSync(bangumiJsonPath, "utf-8"));
-		repoBookMap = new Map(
-			repoItems
-				.filter(
-					(r) =>
-						r.id && r.id !== "undefined" && (r.category === "book" || r.id.includes("/book/") || r.id.startsWith("book/")),
-				)
-				.map((r) => {
-					// 规范化 ID：将 book/xxx 转换为 /bangumi/book/xxx/ 格式
-					const normalizedId = r.id.startsWith("/bangumi/") ? r.id : `/bangumi/${r.id.replace(/^\//, "")}${r.id.endsWith("/") ? "" : "/"}`;
-					return [normalizedId, r];
-				}),
-		);
-	}
+	const repoItems = booksConfig;
+	repoBookMap = new Map(
+		repoItems
+			.filter(
+				(r) =>
+					r.id && r.id !== "undefined" && (r.category === "book" || r.id.includes("/book/") || r.id.startsWith("book/")),
+			)
+			.map((r) => {
+				// 规范化 ID：将 book/xxx 转换为 /bangumi/book/xxx/ 格式
+				const normalizedId = r.id.startsWith("/bangumi/") ? r.id : `/bangumi/${r.id.replace(/^\//, "")}${r.id.endsWith("/") ? "" : "/"}`;
+				return [normalizedId, r];
+			}),
+	);
 } catch (e) {
-	console.error("[books] Failed to read bangumi.json:", e);
+	console.error("[books] Failed to read booksConfig:", e);
 }
 
 const bookItems = customBangumi
@@ -189,6 +176,8 @@ for (let i = 0; i < bangumiInitialItems.length; i++) {
 					client:only
 					defaultCategory="book"
 					customPageName="书架"
+					configPath="src/config/booksConfig.ts"
+					configExportName="booksConfig"
 					initialItems={bangumiInitialItems}
 				/>
 			</div>
