@@ -343,6 +343,7 @@ function closeHelpModal() {
 
 		<button class="edit-btn edit-btn-help" onclick={openHelpModal} title="使用帮助">
 			<iconify-icon icon="material-symbols:help-outline-rounded" class="text-sm"></iconify-icon>
+			<span class="btn-text">帮助</span>
 		</button>
 
 		{#if showAddButton !== false}
@@ -839,21 +840,41 @@ function closeHelpModal() {
 
 	@media (max-width: 768px) {
 		.edit-toolbar {
-			gap: 4px;
-		}
-		.btn-text {
-			display: none !important;
-		}
-		.edit-btn {
-			padding: 6px 8px;
-			min-width: 0;
+			display: flex !important;
+			width: 100% !important;
+			gap: 6px;
 		}
 		.edit-main-btn {
+			width: 100%;
+			justify-content: center;
 			padding: 6px 10px;
-			font-size: 13px;
+			font-size: 12px;
 		}
-		.draft-badge, .batch-badge {
-			margin-left: 0;
+		.edit-mode-toolbar {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 5px;
+			width: 100%;
+		}
+		.edit-mode-toolbar > .edit-btn,
+		.edit-mode-toolbar > .edit-btn-submit {
+			flex: 0 0 calc(50% - 3px);
+			justify-content: center;
+			padding: 6px 4px;
+			font-size: 12px;
+		}
+		.edit-mode-toolbar > .edit-btn .btn-text,
+		.edit-mode-toolbar > .edit-btn-submit .btn-text {
+			display: inline;
+		}
+		.edit-mode-toolbar > .edit-btn iconify-icon {
+			font-size: 14px;
+		}
+		.draft-badge, .batch-badge, .clear-badge {
+			min-width: 16px;
+			height: 16px;
+			font-size: 10px;
+			padding: 0 4px;
 		}
 	}
 
