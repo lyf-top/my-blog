@@ -1,4 +1,4 @@
-import { handleAIChat } from "../../src/workers/ai-chat.js";
+import { handleAIChat } from "../lib/ai-chat.js";
 
 export async function onRequest(context) {
   const { request, env } = context;
