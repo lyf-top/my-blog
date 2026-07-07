@@ -6,7 +6,7 @@ export const commentConfig: CommentConfig = {
 
 	//twikoo评论系统配置，版本1.7.4
 	twikoo: {
-		envId: "https://pl.fqzlr.com",
+		envId: "https://pl.lyf.com",
 		// 设置 Twikoo 评论系统语言
 		lang: "zh-CN",
 		// 是否启用文章访问量统计功能
@@ -47,7 +47,7 @@ export const commentConfig: CommentConfig = {
 	//giscus评论系统配置
 	giscus: {
 		// 设置 Giscus 评论系统仓库
-		repo: "fqzlr/my-blog",
+		repo: "lyf/my-blog",
 		// 设置 Giscus 评论系统仓库ID
 		repoId: "R_kgDOSXWjBQ",
 		// 设置 Giscus 评论系统分类

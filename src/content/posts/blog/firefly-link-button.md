@@ -11,7 +11,7 @@ tags:
   - 博客优化
 category: 教程
 draft: false
-author: fqzlr
+author: lyf
 ---
 
 # Firefly 友链自助申请按钮添加
@@ -26,7 +26,7 @@ author: fqzlr
 1. 打开你的 Firefly 项目
 2. 准备好你的 GitHub 友链申请地址
 ```
-https://github.com/fqzlr/Firefly/issues/new?template=friend-request.yml
+https://github.com/lyf/Firefly/issues/new?template=friend-request.yml
 ```
 
 全程只需要修改 **2 个文件**，复制粘贴即可完成。
@@ -44,7 +44,7 @@ src/pages/friends.astro
 在文件顶部的变量区域加入：
 
 ```astro
-const friendApplyUrl = "https://github.com/fqzlr/Firefly/issues/new?template=friend-request.yml";
+const friendApplyUrl = "https://github.com/lyf/Firefly/issues/new?template=friend-request.yml";
 ```
 
 ### 步骤 2：替换标题区域布局
@@ -110,7 +110,7 @@ src/content/spec/friends.mdx
 替换成 **文字超链接样式**：
 
 ```astro
-<a href="https://github.com/fqzlr/Firefly/issues/new?template=friend-request.yml" 
+<a href="https://github.com/lyf/Firefly/issues/new?template=friend-request.yml" 
    target="_blank"
    class="font-semibold text-sm mb-1 inline-block text-(--primary) hover:underline">
   自助申请友链

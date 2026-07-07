@@ -16,7 +16,7 @@ export const sponsorConfig: SponsorConfig = {
 	methods: [
 		{
 			name: "爱发电",
-			link: "https://ifdian.net/a/fqzlr",
+			link: "https://ifdian.net/a/lyf",
 			enabled: true,
 		},
 		{
@@ -33,7 +33,7 @@ export const sponsorConfig: SponsorConfig = {
 
 	sponsors: [
 		{
-			name: "番茄主理人",
+			name: "一飞",
 			avatar: "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640",
 			amount: "¥50",
 			date: "10/1/2025",

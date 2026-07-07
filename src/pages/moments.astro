@@ -70,7 +70,7 @@ const pinnedData = pinnedMoments.map((m) => ({
 
 // 为编辑器准备初始数据（避免进入编辑模式后数据为空）
 const DEFAULT_AVATAR = "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640";
-const DEFAULT_AUTHOR = "fqzlr";
+const DEFAULT_AUTHOR = "lyf";
 const editorInitialItems = moments.map((m) => {
 	const imgs = parseImages(m.data.images).map((img) =>
 		typeof img === "string" ? img : img.src,

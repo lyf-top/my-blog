@@ -10,7 +10,7 @@ tags:
   - Firefly
 category: 教程
 draft: false
-author: fqzlr
+author: lyf
 ---
 
 # Firefly 友链自助申请自动化 
@@ -486,8 +486,8 @@ response = await page.goto(pageUrl, {
 
 ```js
 const SITE_INFO = {
-  name: "fqzlr",
-  url: "https://fqzlr.com/",
+  name: "lyf",
+  url: "https://lyf.com/",
   avatar: "...",
   desc: "..."
 };
@@ -495,8 +495,8 @@ const SITE_INFO = {
 
 于是脚本会重点寻找：
 
-- `fqzlr.com`
-- `fqzlr`
+- `lyf.com`
+- `lyf`
 
 如果没找到，就说明“对方站点没有把你的友链真正挂上去”，申请不会通过。
 
@@ -774,8 +774,8 @@ await github.rest.issues.update({
 
 ```js
 const SITE_INFO = {
-  name: "fqzlr",
-  url: "https://fqzlr.com/",
+  name: "lyf",
+  url: "https://lyf.com/",
   avatar: "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640",
   desc: "坐而言不如起而行."
 };

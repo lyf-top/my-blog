@@ -25,7 +25,7 @@ export const momentsConfig: MomentItem[] = [
 		images: [],
 		tags: [],
 		pinned: false,
-		author: "fqzlr",
+		author: "lyf",
 		avatar: "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640",
 	},
 	{
@@ -35,7 +35,7 @@ export const momentsConfig: MomentItem[] = [
 		images: [],
 		tags: [],
 		pinned: false,
-		author: "fqzlr",
+		author: "lyf",
 		avatar: "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640",
 	},
 	{
@@ -45,7 +45,7 @@ export const momentsConfig: MomentItem[] = [
 		images: [],
 		tags: [],
 		pinned: false,
-		author: "fqzlr",
+		author: "lyf",
 		avatar: "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640",
 	},
 	{
@@ -56,7 +56,7 @@ export const momentsConfig: MomentItem[] = [
 		tags: ["测试"],
 		location: "测试",
 		pinned: false,
-		author: "fqzlr",
+		author: "lyf",
 		avatar: "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640",
 	},
 	{
@@ -67,7 +67,7 @@ export const momentsConfig: MomentItem[] = [
 		tags: ["想法"],
 		location: "河南-郑州",
 		pinned: false,
-		author: "番茄主理人",
+		author: "一飞",
 		avatar: "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640",
 	},
 ];

@@ -165,13 +165,13 @@ export const friendsPageConfig: FriendsPageConfig = {
 	// 友链申请链接，填写后会在友链页面显示申请按钮
 	// 使用模板参数直接跳转到友链申请模板
 	applyLink:
-		"https://github.com/fqzlr/my-blog/issues/new?template=friend-link.yml",
+		"https://github.com/lyf/my-blog/issues/new?template=friend-link.yml",
 
 	// 本站信息，用于友链申请指南弹窗中的站点信息展示
 	siteInfo: {
-		name: "fqzlr",
+		name: "lyf",
 		desc: "躬身入局，心为主理，行有尺度，自持本心",
-		url: "https://fqzlr.com",
+		url: "https://lyf.com",
 		avatar: "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640",
 		email: "20447289@qq.com",
 	},

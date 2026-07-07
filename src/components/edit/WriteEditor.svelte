@@ -161,7 +161,7 @@ function generateFrontmatter(): string {
 	}
 	lines.push(`draft: ${isDraft}`);
 	lines.push(`pinned: ${isPinned}`);
-	lines.push(`author: fqzlr`);
+	lines.push(`author: lyf`);
 	lines.push("---");
 	return lines.join("\n");
 }
@@ -572,7 +572,7 @@ async function publishDraftPayload(
 	if (payload.category) fmLines.push(`category: ${esc(payload.category)}`);
 	fmLines.push(`draft: ${!!payload.isDraft}`);
 	fmLines.push(`pinned: ${!!payload.isPinned}`);
-	fmLines.push(`author: fqzlr`);
+	fmLines.push(`author: lyf`);
 	fmLines.push("---");
 	const body = String(payload.content || "").trimStart();
 	const fullContent = `${fmLines.join("\n")}\n\n${body}`;

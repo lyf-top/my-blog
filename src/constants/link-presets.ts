@@ -75,13 +75,13 @@ export const LinkPresets: { [key in LinkPreset]: NavBarLink } = {
 	},
 	[LinkPreset.Fhome]: {
 		name: i18n(I18nKey.Fhome),
-		url: "https://home.fqzlr.com/",
+		url: "https://home.lyf.com/",
 		icon: "material-symbols:link",
 		external: true,
 	},
 	[LinkPreset.Fnote]: {
 		name: i18n(I18nKey.Fnote),
-		url: "https://bj.fqzlr.com/",
+		url: "https://bj.lyf.com/",
 		icon: "material-symbols:link",
 		external: true,
 	},
