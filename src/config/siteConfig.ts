@@ -7,25 +7,25 @@ const SITE_LANG = "zh_CN";
 
 export const siteConfig: SiteConfig = {
 	// 站点标题
-	title: "Fqzlr的博客",
+	title: "一飞的博客",
 
 	// 站点副标题
-	subtitle: "Fqzlr",
+	subtitle: "LyF",
 
 	// 站点 URL
-	site_url: "https://fqzlr.com/",
+	site_url: "https://blog.f3f3.top/",
 
 	// 站点描述
 	description:
-		"fqzlr的个人技术博客，专注NAS分享、AI实践、学习笔记与技术总结，与个人成长分享。",
+		"一飞的个人技术博客，专注NAS分享、AI实践、学习笔记与技术总结，与个人成长分享。",
 
 	// 站点关键词
 	keywords: [
-		"fqzlr",
+		"一飞",
 		"JAVA",
 		"AI",
 		"Astro",
-		"ACGN",
+		"Agent",
 		"博客",
 		"技术博客",
 		"静态博客",
@@ -120,7 +120,7 @@ export const siteConfig: SiteConfig = {
 			alt: "logo",
 		},
 		// 导航栏标题
-		title: "Fqzlr的博客",
+		title: "一飞的博客",
 		// 全宽导航栏，导航栏是否占满屏幕宽度
 		widthFull: false,
 		// 导航菜单对齐方式，left：左对齐，center：居中
@@ -132,7 +132,7 @@ export const siteConfig: SiteConfig = {
 	},
 
 	// 站点开始日期，用于统计运行天数
-	siteStartDate: "2026-04-12",
+	siteStartDate: "2026-07-07",
 
 	// 站点时区（IANA 时区字符串），用于格式化bangumi、rss里的构建日期时间等等..
 	// 示例："Asia/Shanghai", "UTC", 如果为空，则按照构建服务器的时区进行时区转换
@@ -140,7 +140,7 @@ export const siteConfig: SiteConfig = {
 
 	// 上下班时间配置（24小时制），用于首页头像涟漪动效和状态按钮
 	workHours: {
-		start: 9, // 上班时间 9:00
+		start: 8, // 上班时间 9:00
 		end: 18, // 下班时间 18:00
 		// 工作日范围，0=周日 1=周一 ... 6=周六，默认周一到周五
 		workDays: [1, 2, 3, 4, 5, 6],
@@ -207,7 +207,7 @@ export const siteConfig: SiteConfig = {
 	// 说说页面封面配置（微信朋友圈风格）
 	momentsCover: {
 		enable: true,
-		image: "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640",
+		image: "https://imgbed.f3f3.top/file/picgo/1783422573027_image.webp",
 	},
 
 	// 分类导航栏开关，在首页和归档页顶部显示分类快捷导航
@@ -290,7 +290,7 @@ export const siteConfig: SiteConfig = {
 	heatmap: {
 		github: {
 			enabled: true,
-			username: "fqzlr", // 填写 GitHub 用户名后启用
+			username: "lyf-top", // 填写 GitHub 用户名后启用
 		},
 	},
 
