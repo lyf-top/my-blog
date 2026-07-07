@@ -321,8 +321,8 @@ export const siteConfig: SiteConfig = {
 	lang: SITE_LANG,
 
 	// 备案号配置，留空则不显示
-	beian: "萌ICP备20268200号",
+	beian: "冀ICP备2026020095号",
 
 	// 公安网备号配置，留空则不显示
-	policeBeian: "萌ICP备20268200号",
+	policeBeian: "冀公网安备13032202000220号",
 };
