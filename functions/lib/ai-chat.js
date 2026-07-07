@@ -1,4 +1,4 @@
-import { aiSearchConfig } from "../config/aiSearchConfig.ts";
+import { aiSearchConfig } from "../config/aiSearchConfig.js";
 import {
 	AI_RATE_LIMIT_MAX,
 	AI_RATE_LIMIT_WINDOW,

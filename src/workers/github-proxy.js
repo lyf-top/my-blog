@@ -154,7 +154,7 @@ async function getInstallationTokenServer(env) {
 		};
 
 		// 获取 installation ID
-		const ghUser = env.PUBLIC_GITHUB_OWNER || "fqzlr";
+		const ghUser = env.PUBLIC_GITHUB_OWNER || "lyf-top";
 		const ghRepo = env.PUBLIC_GITHUB_REPO || "my-blog";
 		let installationId = null;
 
