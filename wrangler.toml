@@ -25,7 +25,7 @@ UMAMI_WEBSITE_ID = "4f4d87b0-bf0f-403a-a7c1-71962537673a"
 
 [[kv_namespaces]]
 binding = "VISITOR_KV"
-id = "2720087758cb476eb24fd8dd4efb3e4c"
+id = "256f386aa8894aa9bef4d6487bc1d3a6"
 
 [[vectorize]]
 binding = "VECTORIZE"
