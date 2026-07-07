@@ -1,11 +1,7 @@
 name = "my-blog"
 compatibility_date = "2026-07-07"
-main = "src/worker.js"
 
 pages_build_output_dir = "./dist"
-
-[assets]
-directory = "./dist"
 
 [vars]
 NODE_VERSION = "22"
