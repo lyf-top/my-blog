@@ -143,6 +143,7 @@ async function getInstallationTokenServer(env) {
 
 	const appId = env.PUBLIC_GITHUB_APP_ID;
 	const privateKey = env.GH_PRIVATE_KEY;
+	console.log("[auth-debug] appId=" + appId + " keyLen=" + (privateKey ? privateKey.length : 0));
 	if (!appId || !privateKey) return null;
 
 	try {
