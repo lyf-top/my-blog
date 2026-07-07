@@ -17,7 +17,7 @@ UMAMI_WEBSITE_ID = "4f4d87b0-bf0f-403a-a7c1-71962537673a"
 # PUBLIC_GITHUB_APP_ID = "你的GitHub App数字ID"
 # GH_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"（完整PEM私钥文本）
 # 可选变量：
-# PUBLIC_GITHUB_OWNER = "fqzlr"（仓库所有者，默认fqzlr）
+# PUBLIC_GITHUB_OWNER = "lyf-top"（仓库所有者，默认lyf-top）
 # PUBLIC_GITHUB_REPO = "my-blog"（仓库名，默认my-blog）
 # ALLOWED_ORIGINS = "https://your-domain.example"
 
