@@ -344,6 +344,32 @@ function buildDefaultNavBarConfig(): NavBarConfig {
 	if (siteConfig.pages.guestbook) {
 		contactChildren.push(LinkPreset.Guestbook);
 	}
+	contactChildren.push(
+		{
+			name: "导航",
+			url: "https://site.f3f3.top",
+			icon: "material-symbols:explore",
+			external: true,
+		},
+		{
+			name: "音乐",
+			url: "https://music.f3f3.top",
+			icon: "material-symbols:music-note",
+			external: true,
+		},
+		{
+			name: "影视",
+			url: "https://tv.f3f3.top",
+			icon: "material-symbols:movie",
+			external: true,
+		},
+		{
+			name: "图床",
+			url: "https://imgbed.f3f3.top",
+			icon: "material-symbols:cloud-upload",
+			external: true,
+		},
+	);
 	contactChildren.push(...customContactLinks);
 
 	const contactNav: NavBarLink | null =
