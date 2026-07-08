@@ -45,6 +45,13 @@ function pemToArrayBuffer(pem) {
 	return bytes.buffer;
 }
 
+function normalizePrivateKeyPem(privateKey) {
+	return String(privateKey || "")
+		.trim()
+		.replace(/^["']|["']$/g, "")
+		.replace(/\\n/g, "\n");
+}
+
 /** PKCS#1 → PKCS#8 */
 function pkcs1ToPkcs8(pkcs1Der) {
 	const ALGO_OID = new Uint8Array([
@@ -142,8 +149,7 @@ async function getInstallationTokenServer(env) {
 	if (cachedToken && now < cachedTokenExpiry) return cachedToken;
 
 	const appId = env.PUBLIC_GITHUB_APP_ID;
-	const privateKey = env.GH_PRIVATE_KEY;
-	console.log("[auth-debug] appId=" + appId + " keyLen=" + (privateKey ? privateKey.length : 0));
+	const privateKey = normalizePrivateKeyPem(env.GH_PRIVATE_KEY);
 	if (!appId || !privateKey) return null;
 
 	try {
@@ -253,6 +259,14 @@ export async function handleGithubProxy(request, env) {
 			const serverToken = await getInstallationTokenServer(env);
 			if (serverToken) {
 				extraHeaders = { Authorization: `Bearer ${serverToken}` };
+			} else {
+				return jsonResponse(
+					{
+						error: "GitHub server authentication failed",
+						hint: "Check PUBLIC_GITHUB_APP_ID, GH_PRIVATE_KEY, GitHub App installation, and Contents permission.",
+					},
+					500,
+				);
 			}
 		}
 		return forwardRequest("GET", path, null, extraHeaders);
@@ -309,6 +323,14 @@ export async function handleGithubProxy(request, env) {
 			const serverToken = await getInstallationTokenServer(env);
 			if (serverToken) {
 				headers.Authorization = `Bearer ${serverToken}`;
+			} else {
+				return jsonResponse(
+					{
+						error: "GitHub server authentication failed",
+						hint: "Check PUBLIC_GITHUB_APP_ID, GH_PRIVATE_KEY, GitHub App installation, and Contents permission.",
+					},
+					500,
+				);
 			}
 		}
 

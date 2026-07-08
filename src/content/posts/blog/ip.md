@@ -3,7 +3,7 @@ title: "Cloudflare IP优选"
 published: 2026-05-03
 updated: 2026-05-03
 description: Cloudflare IP优选
-image: /src/assets/images/cover.avif
+image: /assets/images/1.webp
 tags: [IP优选]
 category: IP优选
 draft: false

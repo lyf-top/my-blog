@@ -3,7 +3,7 @@ title: "Cloudflare Workers 部署 Cloudflare‑ImgBed 图床完整教程"
 published: 2026-05-07
 updated: 2026-05-07
 description: 搭建属于自己的图床
-image: /src/assets/images/cover.avif
+image: /assets/images/1.webp
 tags: [图床]
 category: 博客
 draft: false
@@ -123,4 +123,3 @@ author: lyf
 ## 七、总结
 
 用 Cloudflare Workers 部署图床，**全程免费、无服务器、10 分钟搞定**，适合个人长期稳定使用。按本文步骤：Fork → 拿 Cloudflare 信息 → 配 GitHub Secrets → 一键部署，即可拥有专属高速图床。
-
