@@ -344,7 +344,6 @@ function buildDefaultNavBarConfig(): NavBarConfig {
 	if (siteConfig.pages.guestbook) {
 		contactChildren.push(LinkPreset.Guestbook);
 	}
-	contactChildren.push(LinkPreset.QQGroup);
 	contactChildren.push(...customContactLinks);
 
 	const contactNav: NavBarLink | null =
@@ -357,12 +356,6 @@ function buildDefaultNavBarConfig(): NavBarConfig {
 
 	// 3. 构建我的下拉菜单
 	const myChildren: (NavBarLink | LinkPreset)[] = [];
-	if (siteConfig.pages.sponsor) {
-		myChildren.push(LinkPreset.Fhome);
-	}
-	if (siteConfig.pages.sponsor) {
-		myChildren.push(LinkPreset.Fnote);
-	}
 	if (siteConfig.pages.calendar) {
 		myChildren.push(LinkPreset.Calendar);
 	}
