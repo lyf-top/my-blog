@@ -146,14 +146,22 @@ async function signJwtServer(appId, privateKeyPem) {
 /** 获取 Installation Token（服务端） */
 async function getInstallationTokenServer(env) {
 	const now = Date.now();
-	if (cachedToken && now < cachedTokenExpiry) return cachedToken;
+	if (cachedToken && now < cachedTokenExpiry) {
+		console.log("[auth-debug] using cached token, expires in " + ((cachedTokenExpiry - now) / 1000) + "s");
+		return cachedToken;
+	}
 
 	const appId = env.PUBLIC_GITHUB_APP_ID;
 	const privateKey = normalizePrivateKeyPem(env.GH_PRIVATE_KEY);
-	if (!appId || !privateKey) return null;
+	console.log("[auth-debug] appId=" + appId + " keyLen=" + (privateKey ? privateKey.length : 0));
+	if (!appId || !privateKey) {
+		console.log("[auth-debug] FAIL: missing appId or privateKey");
+		return null;
+	}
 
 	try {
 		const jwt = await signJwtServer(appId, privateKey);
+		console.log("[auth-debug] JWT signed, len=" + jwt.length);
 		const authHeaders = {
 			Authorization: `Bearer ${jwt}`,
 			Accept: "application/vnd.github+json",
@@ -168,8 +176,10 @@ async function getInstallationTokenServer(env) {
 		const instResp = await fetch(`${GH_API}/app/installations`, {
 			headers: authHeaders,
 		});
+		console.log("[auth-debug] GET /app/installations status=" + instResp.status);
 		if (instResp.ok) {
 			const installations = await instResp.json();
+			console.log("[auth-debug] installations count=" + installations.length);
 			for (const inst of installations) {
 				if (inst.account && inst.account.login === ghUser) {
 					installationId = inst.id;
@@ -179,18 +189,30 @@ async function getInstallationTokenServer(env) {
 			if (!installationId && installations.length > 0) {
 				installationId = installations[0].id;
 			}
+		} else {
+			const errText = await instResp.text().catch(() => "");
+			console.log("[auth-debug] installations FAIL body=" + errText.substring(0, 200));
 		}
 		if (!installationId) {
+			console.log("[auth-debug] trying repo installation: " + ghUser + "/" + ghRepo);
 			const instResp2 = await fetch(
 				`${GH_API}/repos/${ghUser}/${ghRepo}/installation`,
 				{ headers: authHeaders },
 			);
+			console.log("[auth-debug] GET repo/installation status=" + instResp2.status);
 			if (instResp2.ok) {
 				const data = await instResp2.json();
 				installationId = data.id;
+			} else {
+				const errText = await instResp2.text().catch(() => "");
+				console.log("[auth-debug] repo installation FAIL body=" + errText.substring(0, 200));
 			}
 		}
-		if (!installationId) return null;
+		if (!installationId) {
+			console.log("[auth-debug] FAIL: no installationId found");
+			return null;
+		}
+		console.log("[auth-debug] installationId=" + installationId);
 
 		// 获取 token
 		const tokenResp = await fetch(
@@ -201,13 +223,19 @@ async function getInstallationTokenServer(env) {
 				body: "{}",
 			},
 		);
-		if (!tokenResp.ok) return null;
+		console.log("[auth-debug] POST access_tokens status=" + tokenResp.status);
+		if (!tokenResp.ok) {
+			const errText = await tokenResp.text().catch(() => "");
+			console.log("[auth-debug] access_tokens FAIL body=" + errText.substring(0, 200));
+			return null;
+		}
 		const data = await tokenResp.json();
 		cachedToken = data.token;
 		cachedTokenExpiry = new Date(data.expires_at).getTime() - 60_000;
+		console.log("[auth-debug] SUCCESS token expires=" + data.expires_at);
 		return cachedToken;
 	} catch (e) {
-		console.error("Server auth failed:", e);
+		console.error("[auth-debug] EXCEPTION:", e.message || e);
 		return null;
 	}
 }
