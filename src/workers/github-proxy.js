@@ -143,100 +143,65 @@ async function signJwtServer(appId, privateKeyPem) {
 	return `${data}.${sig}`;
 }
 
-/** 获取 Installation Token（服务端） */
+/** 获取 Installation Token（服务端），返回 {token, error} */
 async function getInstallationTokenServer(env) {
 	const now = Date.now();
-	if (cachedToken && now < cachedTokenExpiry) {
-		console.log("[auth-debug] using cached token, expires in " + ((cachedTokenExpiry - now) / 1000) + "s");
-		return cachedToken;
-	}
+	if (cachedToken && now < cachedTokenExpiry) return { token: cachedToken };
 
 	const appId = env.PUBLIC_GITHUB_APP_ID;
 	const privateKey = normalizePrivateKeyPem(env.GH_PRIVATE_KEY);
-	console.log("[auth-debug] appId=" + appId + " keyLen=" + (privateKey ? privateKey.length : 0));
-	if (!appId || !privateKey) {
-		console.log("[auth-debug] FAIL: missing appId or privateKey");
-		return null;
-	}
+	if (!appId || !privateKey) return { error: "missing appId or privateKey" };
 
 	try {
 		const jwt = await signJwtServer(appId, privateKey);
-		console.log("[auth-debug] JWT signed, len=" + jwt.length);
 		const authHeaders = {
 			Authorization: `Bearer ${jwt}`,
 			Accept: "application/vnd.github+json",
 			"X-GitHub-Api-Version": "2022-11-28",
 		};
 
-		// 获取 installation ID
 		const ghUser = env.PUBLIC_GITHUB_OWNER || "lyf-top";
 		const ghRepo = env.PUBLIC_GITHUB_REPO || "my-blog";
 		let installationId = null;
 
-		const instResp = await fetch(`${GH_API}/app/installations`, {
-			headers: authHeaders,
-		});
-		console.log("[auth-debug] GET /app/installations status=" + instResp.status);
+		const instResp = await fetch(`${GH_API}/app/installations`, { headers: authHeaders });
 		if (instResp.ok) {
 			const installations = await instResp.json();
-			console.log("[auth-debug] installations count=" + installations.length);
 			for (const inst of installations) {
-				if (inst.account && inst.account.login === ghUser) {
-					installationId = inst.id;
-					break;
-				}
+				if (inst.account && inst.account.login === ghUser) { installationId = inst.id; break; }
 			}
-			if (!installationId && installations.length > 0) {
-				installationId = installations[0].id;
-			}
+			if (!installationId && installations.length > 0) installationId = installations[0].id;
 		} else {
-			const errText = await instResp.text().catch(() => "");
-			console.log("[auth-debug] installations FAIL body=" + errText.substring(0, 200));
+			const t = await instResp.text().catch(() => "");
+			return { error: "GET /app/installations " + instResp.status + ": " + t.substring(0, 200) };
 		}
 		if (!installationId) {
-			console.log("[auth-debug] trying repo installation: " + ghUser + "/" + ghRepo);
-			const instResp2 = await fetch(
-				`${GH_API}/repos/${ghUser}/${ghRepo}/installation`,
-				{ headers: authHeaders },
-			);
-			console.log("[auth-debug] GET repo/installation status=" + instResp2.status);
+			const instResp2 = await fetch(`${GH_API}/repos/${ghUser}/${ghRepo}/installation`, { headers: authHeaders });
 			if (instResp2.ok) {
 				const data = await instResp2.json();
 				installationId = data.id;
 			} else {
-				const errText = await instResp2.text().catch(() => "");
-				console.log("[auth-debug] repo installation FAIL body=" + errText.substring(0, 200));
+				const t = await instResp2.text().catch(() => "");
+				return { error: "GET repo/installation " + instResp2.status + ": " + t.substring(0, 200) };
 			}
 		}
-		if (!installationId) {
-			console.log("[auth-debug] FAIL: no installationId found");
-			return null;
-		}
-		console.log("[auth-debug] installationId=" + installationId);
+		if (!installationId) return { error: "No installation found for " + ghUser + "/" + ghRepo };
 
-		// 获取 token
-		const tokenResp = await fetch(
-			`${GH_API}/app/installations/${installationId}/access_tokens`,
-			{
-				method: "POST",
-				headers: { ...authHeaders, "Content-Type": "application/json" },
-				body: "{}",
-			},
-		);
-		console.log("[auth-debug] POST access_tokens status=" + tokenResp.status);
+		const tokenResp = await fetch(`${GH_API}/app/installations/${installationId}/access_tokens`, {
+			method: "POST",
+			headers: { ...authHeaders, "Content-Type": "application/json" },
+			body: "{}",
+		});
 		if (!tokenResp.ok) {
-			const errText = await tokenResp.text().catch(() => "");
-			console.log("[auth-debug] access_tokens FAIL body=" + errText.substring(0, 200));
-			return null;
+			const t = await tokenResp.text().catch(() => "");
+			return { error: "POST access_tokens " + tokenResp.status + ": " + t.substring(0, 200) };
 		}
 		const data = await tokenResp.json();
 		cachedToken = data.token;
 		cachedTokenExpiry = new Date(data.expires_at).getTime() - 60_000;
-		console.log("[auth-debug] SUCCESS token expires=" + data.expires_at);
-		return cachedToken;
+		return { token: cachedToken };
 	} catch (e) {
-		console.error("[auth-debug] EXCEPTION:", e.message || e);
-		return null;
+		return { error: "EXCEPTION: " + (e.message || e) };
 	}
 }
 
@@ -284,13 +249,14 @@ export async function handleGithubProxy(request, env) {
 		}
 		let extraHeaders = { ...clientAuthObj };
 		if (!clientAuth && env && env.PUBLIC_GITHUB_APP_ID && env.GH_PRIVATE_KEY) {
-			const serverToken = await getInstallationTokenServer(env);
-			if (serverToken) {
-				extraHeaders = { Authorization: `Bearer ${serverToken}` };
+			const result = await getInstallationTokenServer(env);
+			if (result.token) {
+				extraHeaders = { Authorization: `Bearer ${result.token}` };
 			} else {
 				return jsonResponse(
 					{
 						error: "GitHub server authentication failed",
+						detail: result.error || "unknown",
 						hint: "Check PUBLIC_GITHUB_APP_ID, GH_PRIVATE_KEY, GitHub App installation, and Contents permission.",
 					},
 					500,
