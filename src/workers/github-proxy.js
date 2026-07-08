@@ -314,6 +314,7 @@ export async function handleGithubProxy(request, env) {
 
 		// 如果客户端没有 Authorization，且服务端有完整凭据，使用服务端认证
 		const hasClientAuth = headers.Authorization || headers.authorization;
+		console.log("[proxy-debug] POST/PUT hasClientAuth=" + hasClientAuth + " method=" + method + " path=" + path);
 		if (
 			!hasClientAuth &&
 			env &&
@@ -321,6 +322,7 @@ export async function handleGithubProxy(request, env) {
 			env.GH_PRIVATE_KEY
 		) {
 			const serverToken = await getInstallationTokenServer(env);
+			console.log("[proxy-debug] serverToken=" + (serverToken ? "GOT(" + serverToken.substring(0, 10) + "...)" : "NULL"));
 			if (serverToken) {
 				headers.Authorization = `Bearer ${serverToken}`;
 			} else {
