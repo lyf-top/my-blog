@@ -313,6 +313,14 @@ export async function handleGithubProxy(request, env) {
 			const serverToken = await getInstallationTokenServer(env);
 			if (serverToken) {
 				headers.Authorization = `Bearer ${serverToken}`;
+			} else {
+				return jsonResponse(
+					{
+						error: "GitHub server authentication failed",
+						hint: "Check PUBLIC_GITHUB_APP_ID, GH_PRIVATE_KEY, GitHub App installation, and Contents permission.",
+					},
+					500,
+				);
 			}
 		}
 
