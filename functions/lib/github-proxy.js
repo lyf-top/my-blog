@@ -150,10 +150,15 @@ async function getInstallationTokenServer(env) {
 
 	const appId = env.PUBLIC_GITHUB_APP_ID;
 	const privateKey = normalizePrivateKeyPem(env.GH_PRIVATE_KEY);
-	if (!appId || !privateKey) return null;
+	console.log("[auth-step1] appId=" + appId + " keyLen=" + (privateKey ? privateKey.length : "NULL"));
+	if (!appId || !privateKey) {
+		console.log("[auth-fail] missing appId or key");
+		return null;
+	}
 
 	try {
 		const jwt = await signJwtServer(appId, privateKey);
+		console.log("[auth-step2] JWT signed, len=" + jwt.length);
 		const authHeaders = {
 			Authorization: `Bearer ${jwt}`,
 			Accept: "application/vnd.github+json",
@@ -168,8 +173,10 @@ async function getInstallationTokenServer(env) {
 		const instResp = await fetch(`${GH_API}/app/installations`, {
 			headers: authHeaders,
 		});
+		console.log("[auth-step3] GET /app/installations status=" + instResp.status);
 		if (instResp.ok) {
 			const installations = await instResp.json();
+			console.log("[auth-step3] installations count=" + installations.length);
 			for (const inst of installations) {
 				if (inst.account && inst.account.login === ghUser) {
 					installationId = inst.id;
@@ -179,18 +186,29 @@ async function getInstallationTokenServer(env) {
 			if (!installationId && installations.length > 0) {
 				installationId = installations[0].id;
 			}
+		} else {
+			const t = await instResp.text().catch(() => "");
+			console.log("[auth-fail] GET installations: " + instResp.status + " " + t.substring(0, 200));
 		}
 		if (!installationId) {
 			const instResp2 = await fetch(
 				`${GH_API}/repos/${ghUser}/${ghRepo}/installation`,
 				{ headers: authHeaders },
 			);
+			console.log("[auth-step4] GET repo/installation status=" + instResp2.status);
 			if (instResp2.ok) {
 				const data = await instResp2.json();
 				installationId = data.id;
+			} else {
+				const t = await instResp2.text().catch(() => "");
+				console.log("[auth-fail] GET repo/installation: " + instResp2.status + " " + t.substring(0, 200));
 			}
 		}
-		if (!installationId) return null;
+		if (!installationId) {
+			console.log("[auth-fail] no installationId found");
+			return null;
+		}
+		console.log("[auth-step5] installationId=" + installationId);
 
 		// 获取 token
 		const tokenResp = await fetch(
@@ -201,13 +219,19 @@ async function getInstallationTokenServer(env) {
 				body: "{}",
 			},
 		);
-		if (!tokenResp.ok) return null;
+		console.log("[auth-step6] POST access_tokens status=" + tokenResp.status);
+		if (!tokenResp.ok) {
+			const t = await tokenResp.text().catch(() => "");
+			console.log("[auth-fail] POST access_tokens: " + tokenResp.status + " " + t.substring(0, 200));
+			return null;
+		}
 		const data = await tokenResp.json();
 		cachedToken = data.token;
 		cachedTokenExpiry = new Date(data.expires_at).getTime() - 60_000;
+		console.log("[auth-ok] token acquired, expires=" + data.expires_at);
 		return cachedToken;
 	} catch (e) {
-		console.error("Server auth failed:", e);
+		console.error("[auth-fail] EXCEPTION: " + (e.message || String(e)));
 		return null;
 	}
 }
