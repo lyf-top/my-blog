@@ -2678,12 +2678,25 @@ public void before() {
 `@annotation` 用来匹配加了指定注解的方法。
 
 ```
+@Around("@annotation(com.itheima.anno.LogOperation)")
+public Object logAround(ProceedingJoinPoint joinPoint) throws Throwable {
+    long startTime = System.currentTimeMillis();
 
+    Object result = joinPoint.proceed();
+}
+```
+
+```
+@LogOperation
+@DeleteMapping
+public Result delete(Integer id) {
+    System.out.println("根据ID删除部门数据：" + id);
+    deptService.delete(id);
+    return Result.success();
+}
 ```
 
 哪个方法需要增强，就在哪个方法上加 `@LogOperation`
-
-### 
 
 ### 连接点
 
@@ -2748,14 +2761,466 @@ public Object recordTime(ProceedingJoinPoint joinPoint) throws Throwable {
 
 ## 操作日志
 
+![image.webp](https://imgbed.f3f3.top/file/picgo/1783663956439_image.webp)
 
+### 实体类
 
+```
+package com.itheima.pojo;
 
+import lombok.Data;
+import java.time.LocalDateTime;
+//操作人员日志
+@Data
+public class OperateLog {
+    private Integer id; //ID
+    private Integer operateEmpId; //操作人ID
+    private LocalDateTime operateTime; //操作时间
+    private String className; //操作类名
+    private String methodName; //操作方法名
+    private String methodParams; //操作方法参数
+    private String returnValue; //操作方法返回值
+    private Long costTime; //操作耗时
+}
 
+```
 
+### Mapper
 
+```
+package com.itheima.mapper;
 
+import com.itheima.pojo.OperateLog;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
 
+@Mapper
+public interface OperateLogMapper {
 
+    //插入日志数据
+    @Insert("insert into operate_log (operate_emp_id, operate_time, class_name, method_name, method_params, return_value, cost_time) " +
+            "values (#{operateEmpId}, #{operateTime}, #{className}, #{methodName}, #{methodParams}, #{returnValue}, #{costTime});")
+    public void insert(OperateLog log);
+
+}
+
+```
+
+### 自定义注解
+
+```
+package com.itheima.anno;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+/**
+ *  自定义注解，用于标识哪些方法需要记录日志
+ */
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface LogOperation {
+}
+```
+
+### 实现类
+
+```
+ackage com.itheima.Aop;
+
+import com.itheima.Utils.CurrentHolder;
+import com.itheima.anno.LogOperation;
+import com.itheima.mapper.OperateLogMapper;
+import com.itheima.pojo.OperateLog;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import java.time.LocalDateTime;
+import java.util.Arrays;
+@Aspect
+@Component
+public class OperationLogAspect {
+    @Autowired
+    private OperateLogMapper operateLogMapper;
+    // 环绕通知
+    @Around("@annotation(log)")
+    public Object around(ProceedingJoinPoint joinPoint, LogOperation log) throws Throwable {
+    //拦截所有加了 @LogOperation 注解的方法。
+        // 记录开始时间
+        //1.方法执行前
+        long startTime = System.currentTimeMillis();
+        //2. 执行方法
+        //调用原方法
+        Object result = joinPoint.proceed();
+        3.方法执行后
+        // 当前时间
+        long endTime = System.currentTimeMillis();
+        // 耗时
+        long costTime = endTime - startTime;
+        // 构建日志对象
+        OperateLog operateLog = new OperateLog();
+        operateLog.setOperateEmpId(getCurrentUserId()); // 需要实现 getCurrentUserId 方法
+        operateLog.setOperateTime(LocalDateTime.now());
+        operateLog.setClassName(joinPoint.getTarget().getClass().getName());
+        operateLog.setMethodName(joinPoint.getSignature().getName());
+        operateLog.setMethodParams(Arrays.toString(joinPoint.getArgs()));
+        operateLog.setReturnValue(result.toString());
+        operateLog.setCostTime(costTime);
+        // 插入日志
+        operateLogMapper.insert(operateLog);
+        return result;
+    }
+      
+    // 示例方法，获取当前用户ID
+    private int getCurrentUserId() {
+        // 这里应该根据实际情况从认证信息中获取当前登录用户的ID
+        return CurrentHolder.getCurrentId(); // 示例返回值
+    }
+}
+```
 
 ## 获取操作人ID
+
+### TreadLocal
+
+![image.webp](https://imgbed.f3f3.top/file/picgo/1783666951626_image.webp)
+
+![image.webp](https://imgbed.f3f3.top/file/picgo/1783667072333_image.webp)
+
+### 工具类
+
+```
+package com.itheima.Utils;
+
+public class CurrentHolder {
+
+    private static final ThreadLocal<Integer> CURRENT_LOCAL = new ThreadLocal<>();
+    //每个线程自己独有的一份变量副本
+
+    public static void setCurrentId(Integer employeeId) {
+        CURRENT_LOCAL.set(employeeId);
+    }
+
+    public static Integer getCurrentId() {
+        return CURRENT_LOCAL.get();
+    }
+
+    public static void remove() {
+        CURRENT_LOCAL.remove();
+    }
+}
+```
+
+```
+SpringBoot原理package com.itheima.filter;
+
+import com.itheima.utils.CurrentHolder;
+import com.itheima.utils.JwtUtils;
+import io.jsonwebtoken.Claims;
+import jakarta.servlet.*;
+import jakarta.servlet.annotation.WebFilter;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+import java.io.IOException;
+
+@Slf4j
+@WebFilter(urlPatterns = "/*")
+public class TokenFilter implements Filter {
+    @Override
+    public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain) throws IOException, ServletException {
+        HttpServletRequest request = (HttpServletRequest) servletRequest;
+        HttpServletResponse response = (HttpServletResponse) servletResponse;
+
+        //1. 获取请求的url地址
+        String uri = request.getRequestURI(); // /employee/login
+        //String url = request.getRequestURL().toString(); // http://localhost:8080/employee/login
+
+        //2. 判断是否是登录请求, 如果url地址中包含 login, 则说明是登录请求, 放行
+        if (uri.contains("login")) {
+            log.info("登录请求, 放行");
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        //3. 获取请求中的token
+        String token = request.getHeader("token");
+
+        //4. 判断token是否为空, 如果为空, 响应401状态码
+        if (token == null || token.isEmpty()) {
+            log.info("token为空, 响应401状态码");
+            response.setStatus(401); // 响应401状态码
+            return;
+        }
+
+        //5. 如果token不为空, 调用JWtUtils工具类的方法解析token, 如果解析失败, 响应401状态码
+        try {
+            Claims claims = JwtUtils.parseJWT(token);
+            Integer empId = Integer.valueOf(claims.get("id").toString());
+            CurrentHolder.setCurrentId(empId);
+            log.info("token解析成功, 放行");
+        } catch (Exception e) {
+            log.info("token解析失败, 响应401状态码");
+            response.setStatus(401);
+            return;
+        }
+
+        //6. 放行
+        filterChain.doFilter(request, response);
+
+        //7. 清空当前线程绑定的id
+        CurrentHolder.remove();
+    }
+}
+```
+
+## 原理篇
+
+### 配置优先级
+
+#### 基本配置
+
+- application.properties
+- application.yml
+- application.yaml
+
+```
+properties、yaml、yml三种配置文件，优先级最高的是properties
+yaml、yml 两种配置文件，优先级最高的是yml。
+配置文件优先级排名（从高到低）：
+1. properties配置文件
+2. yml配置文件
+3. yaml配置文件
+```
+#### 高级配置
+
+1. Java系统属性配置 （格式： -Dkey=value）
+
+   ```
+   -Dserver.port=9000
+   ```
+1. ```
+   2. 命令行参数 （格式：--key=value）
+    --server.port=10010
+   ```
+   
+
+![image.webp](https://imgbed.f3f3.top/file/picgo/1783669041851_image.webp)
+
+**打包上线**
+
+```
+java -Dserver.port=9000 -jar XXXXX.jar --server.port=10010
+```
+
+### Bean管理
+
+#### @Scope
+
+IOC容器当中，默认bean对象是单例的 (只有一个实例对象)。在Spring中支持五种作用域，后三种在web环境才生效
+
+| 作用域      |                      说明                       |
+| ----------- | :---------------------------------------------: |
+| singleton   | 容器内同名称的bean只有一个实例（单例）（默认）  |
+| prototype   |    每次使用该bean时会创建新的实例（非单例）     |
+| request     | 每个请求范围内会创建新的实例（web环境中，了解） |
+| session     | 每个会话范围内会创建新的实例（web环境中，了解） |
+| application | 每个应用范围内会创建新的实例（web环境中，了解） |
+
+默认singleton的bean，在容器启动时被创建，可以使用@Lazy注解来延迟初始化(延迟到第一次使用时)
+
+```
+@Scope("prototype") //bean作用域为非单例
+@RestController
+@RequestMapping("/depts")
+public class DeptController {
+
+    @Autowired
+    private DeptService deptService;
+
+    public DeptController(){
+        System.out.println("DeptController constructor ....");
+    }
+
+    //省略其他代码...
+}
+//- prototype的bean，每一次使用该bean的时候都会创建一个新的实例。
+```
+
+#### 第三方Bean
+
+```
+package com.itheima.config;
+
+import com.itheima.utils.AliyunOSSOperator;
+import com.itheima.utils.AliyunOSSProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class OSSConfig {
+    @Bean
+    public AliyunOSSOperator aliyunOSSOperator(AliyunOSSProperties ossProperties) {
+        return new AliyunOSSOperator(ossProperties);
+    }
+}
+//通过 @Configuration 注解声明一个配置类
+```
+
+### 起步依赖
+
+![image.webp](https://imgbed.f3f3.top/file/picgo/1783670281745_image.webp)
+
+起步依赖的原理就是Maven的依赖传递。
+
+- 比如：springboot-starter-web，这是web开发的起步依赖，在web开发的起步依赖当中，就集成了web开发中常见的依赖：json、web、webmvc、tomcat等。我们只需要引入这一个起步依赖，其他的依赖都会自动的通过Maven的依赖传递进来。
+
+### 自动配置
+
+#### @import
+
+```
+@Import导入
+- 导入形式主要有以下几种：
+  1. 导入普通类
+  2. 导入配置类
+  3. 导入ImportSelector接口实现类
+```
+
+**引入进来的第三方依赖当中的bean以及配置类为什么没有生效？**
+
+- 在类上添加`@Component`注解来声明bean对象时，还需要保证`@Component`注解能被Spring的组件扫描到。
+- SpringBoot项目中的`@SpringBootApplication`注解，具有包扫描的作用，但是它只会扫描启动类所在的当前包以及子包。 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

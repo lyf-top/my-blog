@@ -1,5 +1,5 @@
 ---
-title: Docker配置
+                title: Docker配置
 description: Docker学习之路开启
 image: 'https://img.f3f3.top/img/2026/04/28/5c5119127bd1dce79e7c5bd4af9a0070.webp' #文章封面页
 tags:
@@ -332,4 +332,433 @@ docker exec -it nginx bash
 -v mysql:/var/lib/mysql # 会被识别为一个数据卷叫mysql，运行时会自动创建这个数据卷
 -v ./mysql:/var/lib/mysql # 会被识别为当前目录下的mysql目录，运行时如果不存在会创建目录
 ```
+
+## 自定义镜像
+
+### 镜像结构
+
+自定义镜像的本质是依次准备好程序运行的基础环境、依赖、应用本身以及运行配置等文件，并将其打包而成。
+
+镜像本质上是一组文件的集合。
+
+
+
+但需要注意的是，镜像文件并不是随意堆叠的，而是按照操作步骤分层构建的。每一层生成的文件都会被单独打包，并赋予一个唯一的标识符，称为 **Layer（层）**。这种分层结构的优势在于，如果我们在构建镜像时使用了某些已经存在的层，就可以直接复用这些层
+
+### Dockerfile
+
+![image.webp](https://imgbed.f3f3.top/file/picgo/1783659729269_image.webp)
+
+|    指令    | 说明                                           | 示例                          |
+| :--------: | ---------------------------------------------- | ----------------------------- |
+|    FROM    | 指定基础镜像                                   | `FROM centos:6`               |
+|    ENV     | 设置环境变量，可在后面指令使用                 | `ENV key value`               |
+|    COPY    | 拷贝本地文件到镜像的指定目录                   | `COPY ./xx.jar /tmp/app.jar`  |
+|    RUN     | 执行 Linux 的 shell 命令，一般是安装过程的命令 | `RUN yum install gcc`         |
+|   EXPOSE   | 指定容器运行时监听的端口，是给镜像使用者看的   | `EXPOSE 8080`                 |
+| ENTRYPOINT | 镜像中应用的启动命令，容器运行时调用           | `ENTRYPOINT java -jar xx.jar` |
+
+### 构建镜像
+
+- 准备项目及对应的Dockerfile
+
+- 拷贝到虚拟机的目录
+
+- **执行命令，构建镜像：
+
+- ```
+  # 开始构建             名字 ：版本 位置
+  docker build -t docker-demo: 1.0  .
+  ```
+
+  
+
+- **查看镜像列表**
+
+- ```
+  # 查看镜像列表：
+  docker images
+  # 结果
+  REPOSITORY    TAG       IMAGE ID       CREATED          SIZE
+  docker-demo   1.0       d6ab0b9e64b9   27 minutes ago   327MB
+  nginx         latest    605c77e624dd   16 months ago    141MB
+  mysql         latest    3218b38490ce   17 months ago    516MB
+  ```
+
+```
+# 1.创建并运行容器
+docker run -d --name dd -p 8080:8080 docker-demo:1.0
+# 2.查看容器
+dps
+# 结果
+CONTAINER ID   IMAGE             PORTS                                                  STATUS         NAMES
+78a000447b49   docker-demo:1.0   0.0.0.0:8080->8080/tcp, :::8090->8090/tcp              Up 2 seconds   dd
+f63cfead8502   mysql             0.0.0.0:3306->3306/tcp, :::3306->3306/tcp, 33060/tcp   Up 2 hours     mysql
+ 
+# 3.访问
+curl localhost:8080/hello/count
+# 结果：
+<h5>欢迎访问黑马商城, 这是您第1次访问<h5>
+```
+
+### 网络
+
+![image.webp](https://imgbed.f3f3.top/file/picgo/1783660042987_image.webp)
+
+|            命令             | 说明                     |
+| :-------------------------: | ------------------------ |
+|   `docker network create`   | 创建一个网络             |
+|     `docker network ls`     | 查看所有网络             |
+|     `docker network rm`     | 删除指定网络             |
+|   `docker network prune`    | 清除未使用的网络         |
+|  `docker network connect`   | 使指定容器连接加入某网络 |
+| `docker network disconnect` | 使指定容器连接离开某网络 |
+|  `docker network inspect`   | 查看网络详细信息         |
+
+```
+# 1.首先通过命令创建一个网络
+docker network create hmall
+ 
+# 2.然后查看网络
+docker network ls
+# 结果：
+NETWORK ID     NAME      DRIVER    SCOPE
+639bc44d0a87   bridge    bridge    local
+403f16ec62a2   hmall     bridge    local
+0dc0f72a0fbb   host      host      local
+cd8d3e8df47b   none      null      local
+# 其中，除了hmall以外，其它都是默认的网络
+ 
+# 3.让dd和mysql都加入该网络，注意，在加入网络时可以通过--alias给容器起别名
+# 这样该网络内的其它容器可以用别名互相访问！
+# 3.1.mysql容器，指定别名为db，另外每一个容器都有一个别名是容器名
+docker network connect hmall mysql --alias db
+# 3.2.db容器，也就是我们的java项目
+docker network connect hmall dd
+ 
+# 4.进入dd容器，尝试利用别名访问db
+# 4.1.进入容器
+docker exec -it dd bash
+# 4.2.用db别名访问
+ping db
+# 结果
+PING db (172.18.0.2) 56(84) bytes of data.
+64 bytes from mysql.hmall (172.18.0.2): icmp_seq=1 ttl=64 time=0.070 ms
+64 bytes from mysql.hmall (172.18.0.2): icmp_seq=2 ttl=64 time=0.056 ms
+# 4.3.用容器名访问
+ping mysql
+# 结果：
+PING mysql (172.18.0.2) 56(84) bytes of data.
+64 bytes from mysql.hmall (172.18.0.2): icmp_seq=1 ttl=64 time=0.044 ms
+64 bytes from mysql.hmall (172.18.0.2): icmp_seq=2 ttl=64 time=0.054 ms
+```
+
+## 项目部署
+
+
+
+- 需求：将我们开发的 tlias-web-management 项目打包为镜像，并部署。
+
+- 步骤：
+
+  - 修改项目的配置文件，修改数据库服务地址，打成jar包。
+
+  - 编写Dockerfile文件。
+
+  - 构建Docker镜像，部署Docker容器，运行测试。
+
+### 部署服务端
+
+**修改项目的配置文件，修改数据库服务地址（打包package）**
+
+
+
+![image.webp](https://imgbed.f3f3.top/file/picgo/1783660542919_image.webp)
+
+
+
+**编写Dockerfile文件**
+
+```
+# 使用 CentOS 7 作为基础镜像
+FROM centos:7
+ 
+# 添加 JDK 到镜像中
+COPY jdk17.tar.gz /usr/local/
+RUN tar -xzf /usr/local/jdk17.tar.gz -C /usr/local/ &&  rm /usr/local/jdk17.tar.gz
+ 
+# 设置环境变量
+ENV JAVA_HOME=/usr/local/jdk-17.0.10
+ENV PATH=$JAVA_HOME/bin:$PATH
+ 
+# 阿里云OSS环境变量
+ENV OSS_ACCESS_KEY_ID=your-access-key-id
+ENV OSS_ACCESS_KEY_SECRET=your-access-key-secret
+ 
+#统一编码
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+ 
+# 创建应用目录
+RUN mkdir -p /tlias
+WORKDIR /tlias
+ 
+# 复制应用 JAR 文件到容器
+COPY  tlias.jar  tlias.jar
+ 
+# 暴露端口
+EXPOSE 8080
+ 
+# 运行命令
+ENTRYPOINT ["java","-jar","/tlias/tlias.jar"]
+```
+
+**构建Docker镜像，部署Docker容器，运行测试**
+
+```
+docker build -t tlias:1.0 .
+docker run -d --name tlias-server --network itheima -p 8080:8080  tlias:1.0
+```
+
+```
+--network itheima ：将容器加入到itheima网络，就可以和itheima网络中的容器通信了。
+```
+
+```
+docker logs -f tlias-server
+通过 docker logs -f 容器名，就可以查看容器的运行日志。
+```
+
+### 部署前端
+
+![image.webp](https://imgbed.f3f3.top/file/picgo/1783661402386_image.webp)
+
+- 将资 **资料/04. 项目部署/前端项目** 中的 目录`html`和 配置文件存放目录 **`conf`**，上传至服务器端的 **`/usr/local/tlias-web`**目录下。
+
+```
+docker run -d \
+--name nginx-tlias \
+-v /usr/local/tlias-web/html:/usr/share/nginx/html \
+-v /usr/local/tlias-web/conf/nginx.conf:/etc/nginx/nginx.conf \
+--network itheima \
+-p 80:80 \
+nginx:1.20.2
+```
+
+## DockerCompose
+
+![image.webp](https://imgbed.f3f3.top/file/picgo/1783661681738_image.webp)
+
+| docker run 参数 | docker compose 指令 | 说明       |
+| :-------------: | ------------------- | ---------- |
+|    `--name`     | `container_name`    | 容器名称   |
+|      `-p`       | `ports`             | 端口映射   |
+|      `-e`       | `environment`       | 环境变量   |
+|      `-v`       | `volumes`           | 数据卷配置 |
+|   `--network`   | `networks`          | 网络       |
+
+```
+services:
+  mysql:
+    image: mysql:8
+    container_name: mysql
+    ports:
+      - "3307:3306"
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: 123
+    volumes:
+      - "/usr/local/app/mysql/conf:/etc/mysql/conf.d"
+      - "/usr/local/app/mysql/data:/var/lib/mysql"
+      - "/usr/local/app/mysql/init:/docker-entrypoint-initdb.d"
+    networks:
+      - tlias-net
+  tlias:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: tlias-server
+    ports:
+      - "8080:8080"
+    networks:
+      - tlias-net
+    depends_on:
+      - mysql
+  nginx:
+    image: nginx:1.20.2
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - "/usr/local/app/nginx/conf/nginx.conf:/etc/nginx/nginx.conf"
+      - "/usr/local/app/nginx/html:/usr/share/nginx/html"
+    depends_on:
+      - tlias
+    networks:
+      - tlias-net
+networks:
+  tlias-net:
+    name: itheima
+```
+
+```
+docker compose [OPTIONS] [COMMAND]
+```
+
+OPTIONS 和 COMMAND 都是可选参数，比较常见的有：
+
+| 类型     | 参数或指令 | 说明                                                         |
+| -------- | ---------- | ------------------------------------------------------------ |
+| Options  | `-f`       | 指定 compose 文件的路径和名称                                |
+| Options  | `-p`       | 指定 project 名称。project 就是当前 compose 文件中设置的多个 service 的集合，是逻辑概念 |
+| Commands | `up`       | 创建并启动所有 service 容器                                  |
+| Commands | `down`     | 停止并移除所有容器、网络                                     |
+| Commands | `ps`       | 列出所有启动的容器                                           |
+| Commands | `logs`     | 查看指定容器的日志                                           |
+| Commands | `stop`     | 停止容器                                                     |
+| Commands | `start`    | 启动容器                                                     |
+| Commands | `restart`  | 重启容器                                                     |
+| Commands | `top`      | 查看运行的进程                                               |
+| Commands | `exec`     | 在指定的运行中容器中执行命令                                 |
+
+```
+# 1.进入root目录
+cd /root
+ 
+# 2.删除旧容器
+docker rm -f $(docker ps -qa)
+ 
+# 3.删除hmall镜像
+docker rmi hmall
+ 
+# 4.清空MySQL数据
+rm -rf mysql/data
+ 
+# 5.启动所有, -d 参数是后台启动
+docker compose up -d
+# 结果：
+[+] Building 15.5s (8/8) FINISHED
+ => [internal] load build definition from Dockerfile                                    0.0s
+ => => transferring dockerfile: 358B                                                    0.0s
+ => [internal] load .dockerignore                                                       0.0s
+ => => transferring context: 2B                                                         0.0s
+ => [internal] load metadata for docker.io/library/openjdk:11.0-jre-buster             15.4s
+ => [1/3] FROM docker.io/library/openjdk:11.0-jre-buster@sha256:3546a17e6fb4ff4fa681c3  0.0s
+ => [internal] load build context                                                       0.0s
+ => => transferring context: 98B                                                        0.0s
+ => CACHED [2/3] RUN ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && echo   0.0s
+ => CACHED [3/3] COPY hm-service.jar /app.jar                                           0.0s
+ => exporting to image                                                                  0.0s
+ => => exporting layers                                                                 0.0s
+ => => writing image sha256:32eebee16acde22550232f2eb80c69d2ce813ed099640e4cfed2193f71  0.0s
+ => => naming to docker.io/library/root-hmall                                           0.0s
+[+] Running 4/4
+ ✔ Network hmall    Created                                                             0.2s
+ ✔ Container mysql  Started                                                             0.5s
+ ✔ Container hmall  Started                                                             0.9s
+ ✔ Container nginx  Started                                                             1.5s
+ 
+# 6.查看镜像
+docker compose images
+# 结果
+CONTAINER           REPOSITORY          TAG                 IMAGE ID            SIZE
+hmall               root-hmall          latest              32eebee16acd        362MB
+mysql               mysql               latest              3218b38490ce        516MB
+nginx               nginx               latest              605c77e624dd        141MB
+ 
+# 7.查看容器
+docker compose ps
+# 结果
+NAME                IMAGE               COMMAND                  SERVICE             CREATED             STATUS              PORTS
+hmall               root-hmall          "java -jar /app.jar"     hmall               54 seconds ago      Up 52 seconds       0.0.0.0:8080->8080/tcp, :::8080->8080/tcp
+mysql               mysql               "docker-entrypoint.s…"   mysql               54 seconds ago      Up 53 seconds       0.0.0.0:3306->3306/tcp, :::3306->3306/tcp, 33060/tcp
+nginx               nginx               "/docker-entrypoint.…"   nginx               54 seconds ago      Up 52 seconds       80/tcp, 0.0.0.0:18080-18081->18080-18081/tcp, :::18080-18081->18080-18081/tcp
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+部署后端
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
